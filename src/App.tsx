@@ -149,6 +149,10 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         </>}
       </main>
 
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on Robinhood Chain (chain ID 4663) only</small>
+      </div>
       <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><DonateChip/><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">

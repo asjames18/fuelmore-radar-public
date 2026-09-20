@@ -18,3 +18,9 @@ it('keeps public sync automatic with only a timestamp and cadence', () => {
  expect(screen.queryByText('SYNCING')).toBeNull()
  expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
 })
+it('shows the donation address on mobile where the footer is hidden', () => {
+ render(<App/>)
+ const chips = screen.getAllByRole('button', { name: /copy donation address/i })
+ expect(chips.length).toBe(2)
+ expect(screen.getByText(/send on Robinhood Chain \(chain ID 4663\) only/i)).toBeTruthy()
+})
