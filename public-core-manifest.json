@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "files": {
     "src/App.test.tsx": "08314326b62cc13977f36f2dbe006a83bfbcfacd4342be1b8dd224fcfc2e66e8",
     "src/App.tsx": "0ff23237e2213592171ebe5af00635c8ef3a5348eb260eaa4e37af22e7f7a98e",
@@ -74,15 +74,15 @@
     "server/publish-storage.test.mjs": "f8714e802a9e78f035c37c3bdaf7b9e3dd6da23a352d0e1c16fa97e0376871d6",
     "server/rpc-allowlist.mjs": "2fafa8c3292eae5752f7d978ad3867f3959f9af206066b16599d701cd7aa8930",
     "server/rpc-allowlist.test.mjs": "a6757792d155bba8448cf4819d172001f1fbeb55adef89c9282a322ce91d3158",
-    "server/rpc-budget.mjs": "dd08625681801c2ec508c24fb60a0f4997d9f5cf77a85fa8c2bc54cd9c46c251",
+    "server/rpc-budget.mjs": "e59d01405932b189a671b55a4152bef8dc68e3d6c586d151b8155c08e36cbb34",
     "server/rpc-budget.test.mjs": "f3e877908623aa9324a51be13bfcdb2e83fb3c3833dd51d0d18eb51812258637",
     "server/rpc-config.mjs": "9dfb292fedc421cb9c4f3c7e72ee231a52b71f488646445005cb8168b92e0e2c",
     "server/rpc-config.test.mjs": "d176478b9c082ce379e67958ef93c75502c8086ff9c374698c0d9c9958dbe8c0",
     "server/rpc-probe.test.mjs": "ee951a90e8859fbadfe336e2514922d42a0fe1cb647e0ac1c4d961bb4f704f44",
     "server/scan-ranges.mjs": "7956d2e625b3609e459b43e79bf0c7768309268bec87f74d00f58ce3205b708b",
     "server/scan-ranges.test.mjs": "d4d1ed40933f2245afaa3185f3b71bfae2d98206622f035e583024dea8638208",
-    "server/worker.mjs": "b44eaa1c776dbaf3d4581949e31873714b527f36e7a35f93d6e1929032f9023b",
-    "server/worker.test.mjs": "7e4e16f5e0870fce770ee29a6755dc6eae9afc7edcf23f85f8510d10eb286d35",
+    "server/worker.mjs": "caa1cbe5a9bdd88264c6b22e14aac6b3760458a65bb4e949624a2bbeb1601b8f",
+    "server/worker.test.mjs": "6ada8cc1f4b7cb3813365d90ffbf1618c660c76abf4d290e5c18ab222c418024",
     "docs/provenance/CONTRACT_PROVENANCE.md": "51be1c62c0dcd83a4bfeb898281e22be008d3fd41a6e44fce79b53f26a270681",
     "docs/provenance/REFERENCE_CROSSCHECK.md": "1fa747dc10f4c993b4724a6f99032321530bc09d4f988c6dc74ed566535b01b5",
     "docs/provenance/sources/batch/BatchMinter.sol": "9fbdb27b69802f33f749ce8649667df86998c2094b4746cc6a8a1163aad2a897",
@@ -113,7 +113,7 @@
     "docs/provenance/sources/vault/sourcify-status.json": "b32c66fbdf3bacfa510f9a35d617340fdb20d564798cc872953b059cb0b08ff4",
     "docs/provenance/sourcify-summary.json": "4ab447326dbff8cf2b529f22ad89005bfdd8f8054ee011241dce83b4dc1ff783",
     "index.html": "e05322794b5fbe0119b3629abfd5fe893e05c6d86115b74900077ec0274d2668",
-    "package-lock.json": "086743e2bea1aeb905ce98c58a079ca9183df36e0852a273763819f9947beebb",
+    "package-lock.json": "5cb11076d5f3b1806cb2bd393fe1f4cc01b42ecbbbd621192636a7c583239b1e",
     "tsconfig.json": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808",
     "tsconfig.app.json": "a7266d1c85fa6947c70073256d9a73e4c459e97b0b4ef24b5c48dcab498ef4c5",
     "tsconfig.node.json": "3dc28b63563e20fab0d9f652f3039ed50e6c46bbdec66631a14822e8309b230d",
@@ -122,14 +122,14 @@
     "scripts/dev.mjs": "7efbe7556f6ed39bbd4a686e04866efe23134aed576fef013a2eae983838f280",
     "scripts/check-rpc.mjs": "7488a759672cc584cdcf81e4e62ca2bce2d5693116a152b595c9d1007305b8bd",
     "src/main.tsx": "c399a62cd4d8234b97bc119a0933e76175dd5f2e1627ec17318b757ef825b2af",
-    "README.md": "282f89f0ef93c3afce39752cea8139d940403bdffee566a0dd68555ad7d8b110",
+    "README.md": "f718afdada2b99d6224dd83e1af370a8bbc76fbbcf5a723ce0b605a7635c09ac",
     "LICENSE": "f1ccd986c1e166b5139726711ae71abcdee7bfa3477a7b6d9387508c4def1d8f",
     "THIRD_PARTY_NOTICES.md": "7189de76b9ae587641883cb275699d033935114d339c836611e5f82fb1b33c78",
-    "package.json": "c497257f42ccc8660c8f107e735b0debb98dce782f197d98345fa39c97e83fe2",
+    "package.json": "0d95002544ecbce390b5dccd60f6d8817c8840191f34d6fa8d5017938c1ba543",
     "public/third-party-licenses.txt": "c43385bf79dc290979a88f6227f53612543b2bcd680494d199203d79f6e11675",
     ".gitignore": "3453ccefd0541a88ddd24d91a032bbecefad0847e8b4f956c29b7535b8a74820",
     "vite.config.ts": "1c5e2029123360fdefac1cd3df024ae76bf91687b8670098c235e91455462baa",
     ".github/workflows/ci.yml": "3ef2266048453e4438926a33a93afae2ba101a95d2eb476b015e6fa500a97557",
-    "wrangler.jsonc": "42bc86342eade592750747715abe9e6736aedabb14169ca98e6ba975666d6196"
+    "wrangler.jsonc": "fa49b80ef68b4099a728fd9e23e36a175276563e4a0756de2ecc3bbf29afbef2"
   }
 }

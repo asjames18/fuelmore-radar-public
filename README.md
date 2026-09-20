@@ -29,8 +29,18 @@ npm run build
 Build output is `dist-public`. Create a separate Worker and ACTIVITY KV namespace;
 add its ID to `wrangler.jsonc`. Store `RPC_URL` as a Worker secret. Verify chain
 4663, archive reads and log limits with `npm run check:rpc` before activation.
-The deployment configuration is a template, not a running service. Configure
-edge rate limiting and a scheduled Node publisher before exposing a public API.
+The deployment configuration is a template, not a running service. Verify its
+rate-limit binding and a scheduled Node publisher before exposing a public API.
+
+The included `RPC_RATE_LIMITER` binding allows approximately 600 logical RPC
+reads per minute per client IP at each Cloudflare location. A batch consumes one
+token per method. Use an unused account namespace ID in `wrangler.jsonc`; keep
+public and personal editions in separate namespaces. Missing or failed binding
+protection returns 503; an exhausted limit returns 429 with Retry-After. IPs
+behind a shared network share the allowance. Cloudflare counters are permissive,
+eventually consistent and local to each location, not a global billing cap.
+Set provider spending/usage controls separately and verify real deployed
+limits before launch. Reference: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
 
 Run `npm run publish:activity` on a scheduled Node host with persistent
 `.radar-data`, then `npm run publish:storage` to upload the complete report to KV.

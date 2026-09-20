@@ -7,6 +7,26 @@ import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedB
 const rpcCache = new Map()
 const rpcBudget = createRpcBudget()
 
+// Platform counters span isolates within a Cloudflare location. They are
+// approximate abuse protection, not a global usage/billing quota.
+async function platformReadLimit(request, env, units) {
+  const unavailable = () => Response.json({jsonrpc:'2.0',id:null,error:{code:-32603,message:'RPC gateway protection unavailable; retry shortly'}},
+    {status:503,headers:{'Access-Control-Allow-Origin':'*','Retry-After':'60','Cache-Control':'no-store'}})
+  const ip=request.headers.get('CF-Connecting-IP')
+  if(!ip || ip.length>128 || typeof env.RPC_RATE_LIMITER?.limit!=='function')return unavailable()
+  try {
+    // A JSON-RPC batch consumes one token per logical method, preventing batching
+    // from multiplying the provider workload allowed by the platform limit.
+    for(let i=0;i<units;i++) {
+      const result=await env.RPC_RATE_LIMITER.limit({key:`radar-rpc:${ip}`})
+      if(result?.success===false)return Response.json({jsonrpc:'2.0',id:null,error:{code:-32005,message:'Read limit reached; retry shortly'}},
+        {status:429,headers:{'Access-Control-Allow-Origin':'*','Retry-After':'60','Cache-Control':'no-store'}})
+      if(result?.success!==true)return unavailable()
+    }
+  } catch { return unavailable() }
+  return null
+}
+
 async function serveActivity(request, env) {
   const loaded = await loadReport(env)
   const report = loaded.report
@@ -81,7 +101,9 @@ export default {
 
           const budgetError = validateReadBudget(items)
           if (budgetError) return Response.json({ jsonrpc: '2.0', id: null, error: { code: -32602, message: budgetError } }, { status: 400 })
-          if (!rpcBudget.admit(request.headers.get('CF-Connecting-IP') || 'local', items.length)) {
+          const platformLimit=await platformReadLimit(request,env,items.length)
+          if(platformLimit)return platformLimit
+          if (!rpcBudget.admit(request.headers.get('CF-Connecting-IP'), items.length)) {
             return Response.json({ jsonrpc: '2.0', id: null, error: { code: -32005, message: 'Read limit reached; retry shortly' } }, { status: 429, headers: { 'Retry-After': '60' } })
           }
           const upstream = resolveRpcUrl(env)

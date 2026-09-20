@@ -1,9 +1,9 @@
 import { it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import worker from './worker.mjs'
-const env = { ASSETS: { fetch: async () => new Response('<html>SPA</html>') } }
+const env = { RPC_RATE_LIMITER: { limit: async () => ({success:true}) }, ASSETS: { fetch: async () => new Response('<html>SPA</html>') } }
 const ctx = { waitUntil() {} }
-const request = body => new Request('https://radar.test/rpc', { method: 'POST', body: JSON.stringify(body) })
+const request = body => new Request('https://radar.test/rpc', { method: 'POST', headers: {'CF-Connecting-IP':'192.0.2.1'}, body: JSON.stringify(body) })
 afterEach(() => mock.restoreAll())
 it('does not return SPA HTML for unsupported RPC or API routes', async () => {
   assert.equal((await worker.fetch(new Request('https://radar.test/rpc'), env, ctx)).status, 405)
@@ -107,4 +107,41 @@ it('does not expose a public activity storage mutation endpoint',async()=>{
  const response=await worker.fetch(new Request('https://radar.test/api/fuel-activity/refresh',{method:'POST'}),{ACTIVITY:{get:async()=>null,put:async()=>{writes++}},ASSETS:{fetch:async()=>new Response('',{status:404})}})
  assert.equal(response.status,404)
  assert.equal(writes,0)
+})
+
+it('denies a platform-limited batch before fetching upstream and charges each logical read', async () => {
+  let upstream=0,admissions=0
+  const keys=[]
+  mock.method(globalThis,'fetch',async()=>{upstream++;return Response.json([{jsonrpc:'2.0',id:1,result:'0x1'},{jsonrpc:'2.0',id:2,result:'0x2'}])})
+  const limited={...env,RPC_RATE_LIMITER:{limit:async({key})=>{keys.push(key);return {success:++admissions<2}}}}
+  const response=await worker.fetch(request([{jsonrpc:'2.0',id:1,method:'eth_getBalance',params:['0x1','latest']},{jsonrpc:'2.0',id:2,method:'eth_getBalance',params:['0x2','latest']}]),limited)
+  assert.equal(response.status,429)
+  assert.equal(response.headers.get('Retry-After'),'60')
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*')
+  assert.equal(admissions,2);assert.equal(keys[0],'radar-rpc:192.0.2.1');assert.equal(keys[0],keys[1]);assert.equal(upstream,0)
+})
+it('fails closed when platform protection or a trusted client address is missing', async () => {
+  let upstream=0;mock.method(globalThis,'fetch',async()=>{upstream++;return Response.json({jsonrpc:'2.0',id:41,result:'0x1'})})
+  const body={jsonrpc:'2.0',id:41,method:'eth_getBalance',params:['0x1','latest']}
+  const missing=await worker.fetch(request(body),{...env,RPC_RATE_LIMITER:undefined})
+  const unidentified=await worker.fetch(new Request('https://radar.test/rpc',{method:'POST',body:JSON.stringify(body)}),env)
+  assert.equal(missing.status,503);assert.equal(unidentified.status,503);assert.equal(upstream,0)
+})
+it('redacts platform failures and refuses malformed limiter results', async () => {
+  const body={jsonrpc:'2.0',id:42,method:'eth_getBalance',params:['0x1','latest']}
+  let upstream=0;mock.method(globalThis,'fetch',async()=>{upstream++;return Response.json({jsonrpc:'2.0',id:42,result:'0x1'})})
+  for(const limit of [async()=>{throw Error('sensitive diagnostics')},async()=>({}),async()=>({success:'true'})]) {
+    const response=await worker.fetch(request(body),{...env,RPC_RATE_LIMITER:{limit}})
+    assert.equal(response.status,503)
+    assert.equal((await response.text()).includes('sensitive diagnostics'),false)
+    assert.equal(upstream,0)
+  }
+})
+it('checks the platform limit before returning a previously cached RPC value', async () => {
+  const body={jsonrpc:'2.0',id:43,method:'eth_chainId'}
+  const isolated={...env,RPC_URL:'https://cache-platform.test'}
+  mock.method(globalThis,'fetch',async()=>Response.json({jsonrpc:'2.0',id:43,result:'0x1237'}))
+  assert.equal((await worker.fetch(request(body),isolated)).status,200)
+  const limited=await worker.fetch(request({...body,id:44}),{...isolated,RPC_RATE_LIMITER:{limit:async()=>({success:false})}})
+  assert.equal(limited.status,429)
 })

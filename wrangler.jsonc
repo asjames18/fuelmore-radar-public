@@ -16,5 +16,15 @@
       "/rpc*",
       "/api/*"
     ]
-  }
+  },
+  "ratelimits": [
+    {
+      "name": "RPC_RATE_LIMITER",
+      "namespace_id": "46631902",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ]
 }

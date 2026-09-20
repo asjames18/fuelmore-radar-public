@@ -1,5 +1,5 @@
-// Per-isolate safeguards. Production also needs a distributed edge rate limit;
-// these counters are intentionally not described as an account-wide quota.
+// Per-isolate safeguards layered with the Worker platform rate-limit binding.
+// Neither these counters nor the per-location binding are an account-wide quota.
 export function createRpcBudget({maxConcurrent=12,unitsPerMinute=600,now=Date.now}={}) {
  const clients=new Map(), pending=new Map()
  let active=0
