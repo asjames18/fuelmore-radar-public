@@ -95,3 +95,11 @@ This project is not affiliated with Robinhood, FUEL, MORE, Alchemy or Dexscreene
 ## License
 
 Original Radar code is MIT licensed. See LICENSE and THIRD_PARTY_NOTICES.md.
+
+## Chart views and wallet read pacing
+
+Price offers Dexscreener USD candles, a dual-axis USD comparison, and optional
+percentage changes. Liquidity uses observed USD values. The long observation
+table is removed. External candle history depends on Dexscreener; saved comparison
+history stays in your browser. Wallet inventory calls are paced and retry temporary
+gateway failures with cancellation support; rate limits remain enabled.

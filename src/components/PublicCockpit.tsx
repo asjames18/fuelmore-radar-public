@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAddress } from 'viem'
+import { cockpitError } from '../lib/cockpitError'
 import { ExternalLink, RefreshCw, Wallet } from 'lucide-react'
 import {
   estimateSlotRewards,
@@ -91,12 +92,12 @@ export function PublicCockpit({ data }: { data: RadarData }) {
             }
           }
         }
-      } catch {
+      } catch (cause) {
         if (stopped) return
         setStatus(previous => (previous === 'ready' ? 'ready' : 'error'))
         setError(controller.signal.aborted
           ? controller.signal.reason === 'timeout' ? 'Reading timed out. Retry to start a new snapshot.' : 'Reading cancelled. Load or refresh to start again.'
-          : 'Unable to refresh your cockpit from RPC. Previous snapshot stays visible when available.')
+          : cockpitError(cause))
         setProgress('')
       } finally {
         window.clearTimeout(deadline)

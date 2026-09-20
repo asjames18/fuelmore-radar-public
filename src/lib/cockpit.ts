@@ -2,6 +2,7 @@ import { createPublicClient, getAddress, http, parseAbi, type Address } from 'vi
 import { CONTRACTS, fuelAbi, RPC_URL, robinhood } from './contracts'
 import { lateClaimPenaltyPct } from './provenance'
 import { decodeMint } from './wallet'
+import { cockpitFetch } from './cockpitTransport'
 
 const batchAbi = parseAbi([
   'function proxiesOf(address) view returns (uint256)',
@@ -14,7 +15,7 @@ const rewardAbi = parseAbi([
 
 const createClient = (signal?: AbortSignal) => createPublicClient({
   chain: robinhood,
-  transport: http(RPC_URL, { timeout: 20_000, retryCount: 2, retryDelay: 500, fetchOptions: { signal } }),
+  transport: http(RPC_URL, { timeout: 90_000, retryCount: 0, fetchFn: cockpitFetch, fetchOptions: { signal } }),
 })
 
 const token = CONTRACTS[0].address as Address

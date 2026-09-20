@@ -582,3 +582,16 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .chart-toolbar .segmented button { min-width: 42px; }
 .chart-note { margin: 0; padding: 10px 15px; color: var(--muted); font: 10px/1.6 var(--mono); }
 @media (max-width: 620px) { .comparison-chart .chart-heading { flex-wrap: wrap; } .comparison-chart .chart-wrap { height: 300px; } }
+
+.candle-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--border); }
+.candle-grid.single { grid-template-columns:minmax(0,1fr); }
+.candle-pane { min-width:0; background:#080e0b; }
+.candle-heading { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; font:12px var(--mono); border-bottom:1px solid #173321; }
+.candle-heading a { color:#94aa9e; font-size:11px; }
+.candle-pane iframe { display:block; width:100%; height:480px; border:0; }
+.chart-quotes { display:flex; gap:32px; padding:14px 20px 0; font-family:var(--mono); }
+.chart-quotes div { display:flex; gap:10px; align-items:center; }
+.chart-quotes span { font-size:11px; }
+.chart-quotes strong { font-size:16px; }
+@media(max-width:1100px) { .candle-grid { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:600px) { .candle-pane iframe { height:420px; } .chart-quotes { gap:16px; padding:12px; } .chart-quotes strong { font-size:13px; } }
