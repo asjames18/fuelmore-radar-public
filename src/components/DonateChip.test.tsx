@@ -14,7 +14,7 @@ describe('DonateChip', () => {
 
     render(<DonateChip/>)
     const button = screen.getByRole('button', { name: /copy donation address/i })
-    expect(button.getAttribute('aria-label')).toContain('Robinhood Chain (chain ID 4663)')
+    expect(button.getAttribute('aria-label')).toContain('any chain')
 
     await act(async () => {
       fireEvent.click(button)

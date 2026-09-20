@@ -3,7 +3,7 @@ import { Check, Copy } from 'lucide-react'
 import { shortAddress } from '../lib/format'
 
 export const DONATE_ADDRESS = '0x995ff20448507459baf3b4ae1d2192e2b4a41f7a'
-export const DONATE_NETWORK_NOTE = 'Robinhood Chain (chain ID 4663)'
+export const DONATE_NETWORK_NOTE = 'any chain'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -42,8 +42,8 @@ export function DonateChip() {
       type="button"
       className="donate-chip"
       onClick={() => void onCopy()}
-      title={`Donations support the Radar. Send on ${DONATE_NETWORK_NOTE} — funds sent on other networks may be lost. Click to copy the address.`}
-      aria-label={`Copy donation address. Donations support the Radar. Send on ${DONATE_NETWORK_NOTE} only.`}
+      title={`Donations support the Radar. Send on ${DONATE_NETWORK_NOTE}. Click to copy the address.`}
+      aria-label={`Copy donation address. Donations support the Radar. Send from ${DONATE_NETWORK_NOTE}.`}
     >
       <span className="donate-label">Support the Radar</span>
       <code>{shortAddress(DONATE_ADDRESS)}</code>

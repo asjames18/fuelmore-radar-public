@@ -14,7 +14,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
-import { DonateChip } from './components/DonateChip'
+import { DonateChip, DONATE_NETWORK_NOTE } from './components/DonateChip'
 import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
 import { PublicCockpit } from './components/PublicCockpit'
@@ -151,7 +151,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
 
       <div className="donate-mobile">
         <DonateChip/>
-        <small>Donations support the Radar · send on Robinhood Chain (chain ID 4663) only</small>
+        <small>Donations support the Radar · send on {DONATE_NETWORK_NOTE}</small>
       </div>
       <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><DonateChip/><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
