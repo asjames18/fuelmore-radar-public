@@ -18,6 +18,9 @@
       "id": "REPLACE_WITH_PUBLIC_KV_ID"
     }
   ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "assets": {
     "directory": "./dist-public",
     "binding": "ASSETS",

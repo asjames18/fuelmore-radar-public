@@ -598,6 +598,8 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .candle-heading { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; font:12px var(--mono); border-bottom:1px solid #173321; }
 .candle-heading a { color:#94aa9e; font-size:11px; }
 .candle-pane iframe { display:block; width:100%; height:480px; border:0; }
+.candle-chart { display:block; width:100%; height:300px; }
+.chart-empty-static { position:static; padding:48px 20px; }
 .chart-quotes { display:flex; gap:32px; padding:14px 20px 0; font-family:var(--mono); }
 .chart-quotes div { display:flex; gap:10px; align-items:center; }
 .chart-quotes span { font-size:11px; }

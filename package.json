@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "lightweight-charts": "^5.2.1",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

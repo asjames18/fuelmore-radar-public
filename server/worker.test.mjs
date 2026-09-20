@@ -1,6 +1,7 @@
 import { it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import worker from './worker.mjs'
+import { runMarketSnapshot, readMarketHistory, validateDexPair, MARKET_HISTORY_KEY } from './market-collect.mjs'
 const env = { RPC_RATE_LIMITER: { limit: async () => ({success:true}) }, ASSETS: { fetch: async () => new Response('<html>SPA</html>') } }
 const ctx = { waitUntil() {} }
 const request = body => new Request('https://radar.test/rpc', { method: 'POST', headers: {'CF-Connecting-IP':'192.0.2.1'}, body: JSON.stringify(body) })
@@ -158,4 +159,91 @@ it('does not invent dashboard data when storage is empty or unavailable', async 
     assert.equal(response.status,503)
   }
   assert.equal((await worker.fetch(new Request('https://radar.test/api/dashboard',{method:'POST'}),env,ctx)).status,405)
+})
+
+const FUEL_PAIR='0xFF40c99525ffA6b6cf79ecbE370eF7C887D68F69'
+const FUEL_TOKEN='0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'
+const MORE_PAIR='0xd77dcda732a762ec8b04ee44a1c7370602759d2372037a5008135ab9f60305ef'
+const MORE_TOKEN='0xc0F1A40512114b25cc1F30b5DF0bb48691405555'
+
+const memoryKv=()=>{const map=new Map();return{async get(key,type){const v=map.get(key);return v===undefined?null:type==='json'?JSON.parse(v):v},async put(key,value){map.set(key,value)},__map:map}}
+const dexPayload=(pairAddress,tokenAddress,priceUsd,liquidityUsd)=>({pairs:[{chainId:'robinhood',dexId:'test-amm',pairAddress,baseToken:{address:tokenAddress,name:'Token',symbol:'T'},priceUsd:String(priceUsd),liquidity:{usd:liquidityUsd}}]})
+const mockDex=(tokenAddress)=>mock.method(globalThis,'fetch',async url=>{
+  const address=String(url).split('/').pop()
+  const fuel=address.toLowerCase()===FUEL_PAIR.toLowerCase()
+  return Response.json(dexPayload(fuel?FUEL_PAIR:MORE_PAIR,tokenAddress??(fuel?FUEL_TOKEN:MORE_TOKEN),fuel?'0.0123':'0.000045',fuel?250000:80000))
+})
+
+it('collects a validated market snapshot on schedule and serves it via /api/market-history',async()=>{
+  mockDex()
+  const kv=memoryKv()
+  let pending=null
+  await worker.scheduled({},{ACTIVITY:kv},{waitUntil:p=>{pending=p}})
+  await pending
+  assert.equal(kv.__map.has(MARKET_HISTORY_KEY),true)
+  const points=await readMarketHistory(kv)
+  assert.equal(points.length,1)
+  assert.equal(points[0].fuelPrice,0.0123)
+  assert.equal(points[0].moreLiquidity,80000)
+  const response=await worker.fetch(new Request('https://radar.test/api/market-history'),{...env,ACTIVITY:kv},ctx)
+  assert.equal(response.status,200)
+  const body=await response.json()
+  assert.equal(body.points.length,1)
+  assert.equal(body.points[0].fuelPrice,0.0123)
+  assert.equal(typeof body.updatedAt,'string')
+})
+
+it('leaves history untouched when pair identity validation fails',async()=>{
+  // Both pairs share a spoofed base-token address: neither side validates.
+  mockDex('0x0000000000000000000000000000000000000001')
+  const kv=memoryKv()
+  const result=await runMarketSnapshot({ACTIVITY:kv})
+  assert.equal(result.ok,false)
+  assert.equal(result.reason,'validation-failed')
+  assert.equal(kv.__map.size,0)
+})
+
+it('does not append when one side of the market fails',async()=>{
+  mock.method(globalThis,'fetch',async url=>{
+    const address=String(url).split('/').pop()
+    if (address.toLowerCase()===MORE_PAIR.toLowerCase()) throw new Error('upstream down')
+    return Response.json(dexPayload(FUEL_PAIR,FUEL_TOKEN,'0.0123',250000))
+  })
+  const kv=memoryKv()
+  const result=await runMarketSnapshot({ACTIVITY:kv})
+  assert.equal(result.ok,false)
+  assert.equal(kv.__map.size,0)
+})
+
+it('prunes snapshots older than 90 days',async()=>{
+  mockDex()
+  const kv=memoryKv()
+  const oldT=Math.floor(Date.now()/1000)-91*24*3600
+  await kv.put(MARKET_HISTORY_KEY,JSON.stringify({updatedAt:new Date(oldT*1000).toISOString(),points:[{t:oldT,fuelPrice:1,fuelLiquidity:1,morePrice:1,moreLiquidity:1}]}))
+  const result=await runMarketSnapshot({ACTIVITY:kv})
+  assert.equal(result.ok,true)
+  const points=await readMarketHistory(kv)
+  assert.equal(points.length,1)
+  assert.ok(points[0].t>oldT)
+})
+
+it('rejects Dexscreener responses with the wrong chain, pair, or token',()=>{
+  const good=dexPayload(FUEL_PAIR,FUEL_TOKEN,'0.01',100)
+  assert.doesNotThrow(()=>validateDexPair(good,FUEL_PAIR,FUEL_TOKEN))
+  assert.throws(()=>validateDexPair({pairs:[{...good.pairs[0],chainId:'ethereum'}]},FUEL_PAIR,FUEL_TOKEN),/identity/)
+  assert.throws(()=>validateDexPair(dexPayload(MORE_PAIR,FUEL_TOKEN,'0.01',100),FUEL_PAIR,FUEL_TOKEN),/identity/)
+  assert.throws(()=>validateDexPair(dexPayload(FUEL_PAIR,MORE_TOKEN,'0.01',100),FUEL_PAIR,FUEL_TOKEN),/identity/)
+  assert.throws(()=>validateDexPair({pairs:[]},FUEL_PAIR,FUEL_TOKEN),/pair/i)
+})
+
+it('serves empty market history before the first snapshot and rejects non-GET',async()=>{
+  const kv=memoryKv()
+  const empty=await worker.fetch(new Request('https://radar.test/api/market-history'),{...env,ACTIVITY:kv},ctx)
+  assert.equal(empty.status,200)
+  const body=await empty.json()
+  assert.deepEqual(body,{updatedAt:null,points:[]})
+  const post=await worker.fetch(new Request('https://radar.test/api/market-history',{method:'POST'}),{...env,ACTIVITY:kv},ctx)
+  assert.equal(post.status,405)
+  const down=await worker.fetch(new Request('https://radar.test/api/market-history'),{...env,ACTIVITY:{get:async()=>{throw new Error('offline')}}},ctx)
+  assert.equal(down.status,503)
 })

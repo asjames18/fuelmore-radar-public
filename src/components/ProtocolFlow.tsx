@@ -17,7 +17,6 @@ export function ProtocolFlow({ protocol }: { protocol: ProtocolSnapshot }) {
         <div><h2 id="flow-title">Protocol fee flow</h2><p>Source-verified FeeDistributor split · not a security audit</p></div>
         <span className="mono muted">Distributed {formatEth(protocol.totalDistributed)}</span>
       </div>
-      <p className="activity-note">45/25/30 comes from verified <code>FeeDistributor.sol</code> on Robinhood Chain (Sourcify exact match). See <code>docs/provenance/CONTRACT_PROVENANCE.md</code>.</p>
       <div className="flow-grid">
         <div className="flow-source"><span>Mint fees</span><strong>100%</strong></div>
         <ArrowRight className="flow-arrow desktop-arrow" size={22}/><ArrowDown className="flow-arrow mobile-arrow" size={22}/>

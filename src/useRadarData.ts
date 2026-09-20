@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchRadarData } from './lib/api'
 import { readHistory, recordHistory } from './lib/history'
+import { useMarketHistory } from './useMarketHistory'
 import { decodeDashboard, encodeDashboard, mergeDashboard, DASHBOARD_MAX_AGE } from './lib/dashboardSnapshot'
 import { storageKey } from './lib/storage'
 import type { HistoryPoint, RadarData } from './lib/types'
@@ -13,6 +14,9 @@ export function useRadarData() {
   const [data, setData] = useState<RadarData | null>(savedDashboard)
   const current = useRef(data)
   const [history, setHistory] = useState<HistoryPoint[]>(() => readHistory())
+  // Prefer the Worker's shared 15-minute snapshots; merge with this browser's
+  // saved observations while the server history ramps up after launch.
+  const { history: marketHistory } = useMarketHistory(history)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const busy = useRef(false)
@@ -58,5 +62,5 @@ export function useRadarData() {
 
   const stale = data?.sources.some(s => s.retained || now - Date.parse(s.checkedAt) > DASHBOARD_MAX_AGE)
   const status = !data ? error ? 'error' : 'loading' : stale || error ? 'stale' : data.partial ? 'partial' : 'live'
-  return { data, history, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
+  return { data, history: marketHistory, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
 }

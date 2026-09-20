@@ -4,6 +4,8 @@ import { findDisallowedRpcMethods } from './rpc-allowlist.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 
+import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
+
 const rpcCache = new Map()
 const rpcBudget = createRpcBudget()
 
@@ -204,8 +206,27 @@ export default {
       return serveActivity(request, env)
     }
 
+    if (url.pathname === '/api/market-history') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 })
+      try {
+        if (!env.ACTIVITY || typeof env.ACTIVITY.get !== 'function') throw new Error('KV unavailable')
+        const points = await readMarketHistory(env.ACTIVITY)
+        const last = points.at(-1)
+        return Response.json(
+          { updatedAt: last ? new Date(last.t * 1000).toISOString() : null, points },
+          { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=60' } },
+        )
+      } catch {
+        return Response.json({ error: 'Market history unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+      }
+    }
+
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rpc')) return Response.json({ error: 'Not found' }, { status: 404 })
     return env.ASSETS.fetch(request)
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runMarketSnapshot(env))
   },
 
 }
