@@ -93,6 +93,7 @@ export type RadarData = {
   contracts: ContractStatus[]
   holders: Record<string, HolderSummary>
   activity: ActivityItem[]
+  protocolObservation?: { blockNumber: string; blockHash: string; blockTimestamp: string }
   protocol: ProtocolSnapshot
   updatedAt: string
   partial: boolean

@@ -9,7 +9,7 @@ beforeEach(() => {
   rpc.readContract.mockResolvedValue(1n)
   rpc.getBalance.mockResolvedValue(1n)
   rpc.getChainId.mockResolvedValue(4663)
-  rpc.getBlock.mockResolvedValue({ number: 100n, hash: '0xabc' })
+  rpc.getBlock.mockResolvedValue({ number: 100n, hash: '0x' + 'a'.repeat(64), timestamp: 1700000000n })
   vi.stubGlobal('window', { setTimeout: (callback: () => void) => setTimeout(callback, 0) })
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (brokenHolders && url.includes('/holders')) return new Response('{}', { status: 400 })

@@ -56,6 +56,16 @@ scan. No paid service is enabled by this template. Failed reads retain the
 last complete report and resumable checkpoint. Verify live publication and
 recovery before release.
 
+## Saved dashboard snapshots
+
+Run `node server/publish-dashboard.mjs` every 15 minutes on the same trusted Node
+host, with RPC_URL and the Cloudflare storage variables above. Keep one writer per
+KV namespace. The script uses the shared adapters and preserves complete source
+groups on failed reads. GET /api/dashboard serves saved public aggregates; visitors
+check that copy every minute and retain an edition-local cache for instant reloads.
+Source timestamps identify retained and delayed values. Wallet reads stay separate.
+Failed first publication means unavailable data, never invented zero values.
+
 ## Pages and interpretation
 
 - Overview: market and protocol snapshots, daily FUEL minting versus claiming.

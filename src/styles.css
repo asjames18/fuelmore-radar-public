@@ -571,3 +571,5 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
   .cockpit-day-summary { grid-template-columns: 1fr; }
   .mobile-nav button span { font-size: 7px; }
 }
+
+.source-health p, .source-health span { overflow-wrap: anywhere; }

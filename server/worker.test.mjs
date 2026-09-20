@@ -145,3 +145,17 @@ it('checks the platform limit before returning a previously cached RPC value', a
   const limited=await worker.fetch(request({...body,id:44}),{...isolated,RPC_RATE_LIMITER:{limit:async()=>({success:false})}})
   assert.equal(limited.status,429)
 })
+it('serves the saved shared dashboard without any upstream fetch', async () => {
+  mock.method(globalThis, 'fetch', async () => { throw new Error('must not fetch upstream') })
+  const body = JSON.stringify({version:1,chainId:4663,data:{updatedAt:'2026-09-20T00:00:00Z'}})
+  const response = await worker.fetch(new Request('https://radar.test/api/dashboard'), {...env,ACTIVITY:{get:async key=>key==='dashboard-snapshot-v1'?body:null}},ctx)
+  assert.equal(await response.text(),body)
+  assert.equal(response.headers.get('Cache-Control'),'public, max-age=30')
+})
+it('does not invent dashboard data when storage is empty or unavailable', async () => {
+  for (const store of [{get:async()=>null},{get:async()=>{throw new Error('offline')}}]) {
+    const response = await worker.fetch(new Request('https://radar.test/api/dashboard'), {...env,ACTIVITY:store},ctx)
+    assert.equal(response.status,503)
+  }
+  assert.equal((await worker.fetch(new Request('https://radar.test/api/dashboard',{method:'POST'}),env,ctx)).status,405)
+})

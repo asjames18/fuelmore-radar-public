@@ -190,6 +190,15 @@ export default {
 
     if (url.pathname === '/rpc') return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST, OPTIONS' } })
 
+    if (url.pathname === '/api/dashboard') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 })
+      try {
+        const snapshot = await env.ACTIVITY?.get('dashboard-snapshot-v1')
+        if (snapshot) return new Response(snapshot, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=30' } })
+      } catch { /* Clients keep their saved snapshot with its original timestamps. */ }
+      return Response.json({ error: 'Saved dashboard unavailable; waiting for scheduled sync' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+    }
+
     if (url.pathname === '/api/fuel-activity') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
       return serveActivity(request, env)

@@ -26,9 +26,9 @@ import {
 const DEX_API = 'https://api.dexscreener.com/latest/dex/pairs/robinhood'
 const BLOCKSCOUT_API = `${BLOCKSCOUT}/api/v2`
 
-const client = createPublicClient({
+const makeClient = (rpcUrl = RPC_URL) => createPublicClient({
   chain: robinhood,
-  transport: http(RPC_URL, { retryCount: 2, timeout: 10_000 }),
+  transport: http(rpcUrl, { retryCount: 2, timeout: 10_000 }),
 })
 
 type DexPair = {
@@ -71,7 +71,7 @@ type TransferItem = {
   token: { symbol: string }
 }
 
-const pause = (milliseconds: number) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+const pause = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 async function json<T>(url: string, attempt = 0): Promise<T> {
   const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) })
@@ -189,7 +189,7 @@ async function safeRead<T>(promise: Promise<T>): Promise<T | null> {
   }
 }
 
-async function fetchProtocol(): Promise<ProtocolSnapshot> {
+async function fetchProtocol(client: ReturnType<typeof makeClient>): Promise<{ values: ProtocolSnapshot; observation: { blockNumber: string; blockHash: string; blockTimestamp: string } }> {
   if (await client.getChainId() !== robinhood.id) throw new Error('Unexpected RPC network')
   const block = await client.getBlock()
   if (block.number === null || !block.hash) throw new Error('Confirmed block unavailable')
@@ -225,18 +225,18 @@ async function fetchProtocol(): Promise<ProtocolSnapshot> {
     read<bigint>(vault, vaultAbi, 'currentCycle'),
     read<bigint>(vault, vaultAbi, 'currentCycleEnd'),
   ])
-  if ((await client.getBlock({ blockNumber })).hash !== block.hash) {
+  if (await client.getChainId() !== robinhood.id || (await client.getBlock({ blockNumber })).hash !== block.hash) {
     throw new Error('Chain changed during protocol reads')
   }
 
-  return {
+  return { observation: { blockNumber: blockNumber.toString(), blockHash: block.hash, blockTimestamp: block.timestamp.toString() }, values: {
     totalSupply, globalRank, activeMinters, totalStaked, activeStakes, amp, eaar,
     maxTermSeconds, fuelBurnt, moreBurnt, ethUsedFuelBurns, ethUsedMoreBurns,
     totalDistributed, vaultBalance, vaultSwept, vaultCycle, vaultCycleEnd,
-  }
+  } }
 }
 
-export async function fetchRadarData(): Promise<RadarData> {
+export async function fetchRadarData(rpcUrl = RPC_URL): Promise<RadarData> {
   const checked = new Map<string, string>()
   async function track<T>(name: string, promise: Promise<T>): Promise<T> {
     try { return await promise } finally { checked.set(name, new Date().toISOString()) }
@@ -258,7 +258,7 @@ export async function fetchRadarData(): Promise<RadarData> {
     track('MORE holders', fetchHolderSummary(CONTRACTS[1].address)),
     track('FUEL transfers', fetchTransfers(CONTRACTS[0].address)),
     track('MORE transfers', fetchTransfers(CONTRACTS[1].address)),
-    track('Protocol RPC reads', fetchProtocol()),
+    track('Protocol RPC reads', fetchProtocol(makeClient(rpcUrl))),
   ])
 
   const pairs = pairResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
@@ -279,13 +279,13 @@ export async function fetchRadarData(): Promise<RadarData> {
   }
 
   const checkedAt = new Date().toISOString()
-  const protocolValue = protocol.status === 'fulfilled' ? protocol.value : emptyProtocol
+  const protocolValue = protocol.status === 'fulfilled' ? protocol.value.values : emptyProtocol
   const protocolFields = Object.values(protocolValue)
   const sources = [
     sourceCheck('Dexscreener markets', pairs.length, 2, checkedAt, 'Third-party mirror of on-chain pool price/liquidity; not an executable quote; fetch time is not trade time.'),
     sourceCheck('Blockscout contracts', contracts.filter(item => item.reachable).length, CONTRACTS.length, checkedAt, 'Source-verification metadata is not a security audit.'),
     ...([['FUEL holders', fuelHolders], ['MORE holders', moreHolders], ['FUEL transfers', fuelActivity], ['MORE transfers', moreActivity]] as const).map(([name, result]) => sourceCheck(name, result.status === 'fulfilled' ? 1 : 0, 1, checkedAt, 'Explorer-indexed data may lag the chain.')),
-    sourceCheck('Protocol RPC reads', protocolFields.filter(value => value !== null).length, protocolFields.length, checkedAt, `${protocolFields.filter(value => value !== null).length}/${protocolFields.length} reads returned. Reads may span multiple blocks.`),
+    sourceCheck('Protocol RPC reads', protocolFields.filter(value => value !== null).length, protocolFields.length, checkedAt, `${protocolFields.filter(value => value !== null).length}/${protocolFields.length} reads returned. Reads pinned to one block; hash rechecked.`),
   ]
   for (const source of sources) source.checkedAt = checked.get(source.name) ?? checkedAt
   return {
@@ -297,7 +297,8 @@ export async function fetchRadarData(): Promise<RadarData> {
       MORE: moreHolders.status === 'fulfilled' ? moreHolders.value : unavailableHolders(),
     },
     activity,
-    protocol: protocol.status === 'fulfilled' ? protocol.value : emptyProtocol,
+    protocol: protocol.status === 'fulfilled' ? protocol.value.values : emptyProtocol,
+    protocolObservation: protocol.status === 'fulfilled' ? protocol.value.observation : undefined,
     updatedAt: new Date().toISOString(),
     partial: hasUnavailableSources(sources),
   }

@@ -37,14 +37,14 @@ export function readHistory(): HistoryPoint[] {
   return [...sessionHistory]
 }
 
-export function recordHistory(pairs: PairSnapshot[]): HistoryPoint[] {
+export function recordHistory(pairs: PairSnapshot[], observedAt = Date.now()): HistoryPoint[] {
   const fuel = pairs.find((pair) => pair.symbol === 'FUEL')
   const more = pairs.find((pair) => pair.symbol === 'MORE')
   if (!fuel && !more) return readHistory()
 
   const history = readHistory()
   const last = history.at(-1)
-  const now = Date.now()
+  const now = observedAt
   if (last && now - last.at < 20_000) return history
 
   const next = normalizeHistory([...history, {
