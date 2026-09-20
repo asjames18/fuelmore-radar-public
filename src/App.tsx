@@ -14,6 +14,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
+import { DonateChip } from './components/DonateChip'
 import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
 import { PublicCockpit } from './components/PublicCockpit'
@@ -148,7 +149,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         </>}
       </main>
 
-      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
+      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><DonateChip/><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {NAV.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => setView(name)}><Icon size={19}/><span>{name}</span></button>)}

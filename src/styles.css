@@ -238,6 +238,12 @@ main { padding: 20px 22px 36px; max-width: 1800px; margin: 0 auto; }
 
 footer { min-height: 62px; display: flex; align-items: center; gap: 16px; padding: 0 22px; border-top: 1px solid var(--line); color: var(--faint); font: 9px var(--mono); }
 footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } footer a { margin-left: auto; color: var(--muted); } footer a:hover { color: var(--green); }
+.donate-chip { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 2px; cursor: pointer; color: var(--muted); font: 9px var(--mono); }
+.donate-chip:hover { color: var(--green); }
+.donate-chip .donate-label { color: var(--faint); }
+.donate-chip:hover .donate-label { color: var(--green); }
+.donate-chip code { font: inherit; color: inherit; }
+.donate-chip .donate-state { min-width: 34px; text-align: left; color: var(--green); }
 .mobile-nav { display: none; }.nav-scrim { display: none; }
 
 @media (max-width: 1180px) {
