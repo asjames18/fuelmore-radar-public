@@ -10,3 +10,11 @@ it('public planner is marked coming soon without unverified calculator inputs', 
  expect(screen.getByText(/Coming soon/)).toBeTruthy()
  expect(screen.queryByLabelText('Batch size')).toBeNull()
 })
+it('keeps public sync automatic with only a timestamp and cadence', () => {
+ render(<App/>)
+ expect(screen.getByText(/Last sync:/)).toBeTruthy()
+ expect(screen.getByText('Updates every 15 minutes')).toBeTruthy()
+ expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull()
+ expect(screen.queryByText('SYNCING')).toBeNull()
+ expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
+})

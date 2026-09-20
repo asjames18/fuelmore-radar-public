@@ -24,7 +24,8 @@ import {
 } from './types'
 
 const DEX_API = 'https://api.dexscreener.com/latest/dex/pairs/robinhood'
-const BLOCKSCOUT_API = `${BLOCKSCOUT}/api/v2`
+const explorerUrl = (path: string) => `${BLOCKSCOUT}/api/v2${path}`
+type ExplorerUrl = (path: string) => string
 
 const makeClient = (rpcUrl = RPC_URL) => createPublicClient({
   chain: robinhood,
@@ -73,7 +74,14 @@ type TransferItem = {
 
 const pause = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
+let nextExplorerRead = 0
 async function json<T>(url: string, attempt = 0): Promise<T> {
+  if (url.startsWith('https://api.blockscout.com/4663/')) {
+    // Stay below the free plan's five requests/second, including parallel holder reads.
+    const delay = Math.max(0, nextExplorerRead - Date.now())
+    nextExplorerRead = Date.now() + delay + 250
+    if (delay) await pause(delay)
+  }
   const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) })
   if (!response.ok) {
     if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
@@ -113,8 +121,8 @@ async function fetchPair(pairAddress: string): Promise<PairSnapshot> {
   }
 }
 
-async function fetchContractStatus(contract: (typeof CONTRACTS)[number]): Promise<ContractStatus> {
-  const data = await json<BlockscoutContract>(`${BLOCKSCOUT_API}/smart-contracts/${contract.address}`)
+async function fetchContractStatus(contract: (typeof CONTRACTS)[number], endpoint: ExplorerUrl): Promise<ContractStatus> {
+  const data = await json<BlockscoutContract>(endpoint(`/smart-contracts/${contract.address}`))
   return {
     ...contract,
     reachable: true,
@@ -125,10 +133,10 @@ async function fetchContractStatus(contract: (typeof CONTRACTS)[number]): Promis
   }
 }
 
-async function fetchHolderSummary(address: string): Promise<HolderSummary> {
+async function fetchHolderSummary(address: string, endpoint: ExplorerUrl): Promise<HolderSummary> {
   const [meta, holders] = await Promise.all([
-    json<TokenMeta>(`${BLOCKSCOUT_API}/tokens/${address}`),
-    json<{ items: HolderItem[] }>(`${BLOCKSCOUT_API}/tokens/${address}/holders`),
+    json<TokenMeta>(endpoint(`/tokens/${address}`)),
+    json<{ items: HolderItem[] }>(endpoint(`/tokens/${address}/holders`)),
   ])
   const supply = BigInt(meta.total_supply)
   const percent = (value: string) => supply > 0n ? Number((BigInt(value) * 10_000n) / supply) / 100 : null
@@ -153,8 +161,8 @@ async function fetchHolderSummary(address: string): Promise<HolderSummary> {
   }
 }
 
-async function fetchTransfers(address: string): Promise<ActivityItem[]> {
-  const data = await json<{ items: TransferItem[] }>(`${BLOCKSCOUT_API}/tokens/${address}/transfers`)
+async function fetchTransfers(address: string, endpoint: ExplorerUrl): Promise<ActivityItem[]> {
+  const data = await json<{ items: TransferItem[] }>(endpoint(`/tokens/${address}/transfers`))
   const zero = /^0x0{40}$/i
   const dead = /^0x0{36}dead$/i
   const poolAddresses = Object.values(PAIRS).map((item) => item.toLowerCase())
@@ -236,7 +244,11 @@ async function fetchProtocol(client: ReturnType<typeof makeClient>): Promise<{ v
   } }
 }
 
-export async function fetchRadarData(rpcUrl = RPC_URL): Promise<RadarData> {
+export async function fetchRadarData(rpcUrl = RPC_URL, options: { blockscoutApiKey?: string } = {}): Promise<RadarData> {
+  if (options.blockscoutApiKey && typeof window !== 'undefined') throw new Error('Explorer credentials are backend-only')
+  const endpoint: ExplorerUrl = options.blockscoutApiKey
+    ? path => `https://api.blockscout.com/4663/api/v2${path}?apikey=${encodeURIComponent(options.blockscoutApiKey!)}`
+    : explorerUrl
   const checked = new Map<string, string>()
   async function track<T>(name: string, promise: Promise<T>): Promise<T> {
     try { return await promise } finally { checked.set(name, new Date().toISOString()) }
@@ -246,7 +258,7 @@ export async function fetchRadarData(rpcUrl = RPC_URL): Promise<RadarData> {
   const contractResults: PromiseSettledResult<ContractStatus>[] = []
   for (const contract of CONTRACTS) {
     try {
-      contractResults.push({ status: 'fulfilled', value: await fetchContractStatus(contract) })
+      contractResults.push({ status: 'fulfilled', value: await fetchContractStatus(contract, endpoint) })
     } catch (reason) {
       contractResults.push({ status: 'rejected', reason })
     }
@@ -254,10 +266,10 @@ export async function fetchRadarData(rpcUrl = RPC_URL): Promise<RadarData> {
   }
   checked.set('Blockscout contracts', new Date().toISOString())
   const [fuelHolders, moreHolders, fuelActivity, moreActivity, protocol] = await Promise.allSettled([
-    track('FUEL holders', fetchHolderSummary(CONTRACTS[0].address)),
-    track('MORE holders', fetchHolderSummary(CONTRACTS[1].address)),
-    track('FUEL transfers', fetchTransfers(CONTRACTS[0].address)),
-    track('MORE transfers', fetchTransfers(CONTRACTS[1].address)),
+    track('FUEL holders', fetchHolderSummary(CONTRACTS[0].address, endpoint)),
+    track('MORE holders', fetchHolderSummary(CONTRACTS[1].address, endpoint)),
+    track('FUEL transfers', fetchTransfers(CONTRACTS[0].address, endpoint)),
+    track('MORE transfers', fetchTransfers(CONTRACTS[1].address, endpoint)),
     track('Protocol RPC reads', fetchProtocol(makeClient(rpcUrl))),
   ])
 

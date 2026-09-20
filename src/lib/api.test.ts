@@ -59,3 +59,25 @@ it('withholds protocol reads on the wrong network instead of mixing chains', asy
   expect(data.sources.find(source => source.name === 'Protocol RPC reads')?.status).toBe('unavailable')
   expect(rpc.readContract).not.toHaveBeenCalled()
 })
+it('refuses to use an explorer credential in a browser', async()=>{
+ await expect(fetchRadarData(undefined,{blockscoutApiKey:'test-only-key'})).rejects.toThrow('backend-only')
+})
+it('uses the documented chain-specific explorer API on the backend without exposing the key in saved data',async()=>{
+ vi.stubGlobal('window',undefined)
+ vi.mocked(fetch).mockImplementation(async(input)=>{
+  const url=String(input)
+  if(url.includes('api.blockscout.com')) {
+   expect(url).toContain('/4663/api/v2/')
+   expect(new URL(url).searchParams.get('apikey')).toBe('test-only-key')
+   if(url.includes('/smart-contracts/')) return Response.json({is_verified:true})
+   if(url.includes('/holders?')) return Response.json({items:[]})
+   if(url.includes('/transfers?')) return Response.json({items:[]})
+   return Response.json({total_supply:'1000',holders_count:'0'})
+  }
+  return Response.json({pairs:[]})
+ })
+ const data=await fetchRadarData(undefined,{blockscoutApiKey:'test-only-key'})
+ expect(data.holders.FUEL.totalHolders).toBe(0)
+ expect(data.sources.find(s=>s.name==='FUEL holders')?.status).toBe('available')
+ expect(JSON.stringify(data,(_,v)=>typeof v==='bigint'?v.toString():v)).not.toContain('test-only-key')
+})

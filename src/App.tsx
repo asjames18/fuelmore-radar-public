@@ -112,19 +112,22 @@ function App({ personal }: { personal?: PersonalFeatures }) {
       <header className="topbar">
         <button className="menu-button" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button>
         <div className="brand"><span>$FUEL</span><b>/</b><span>MORE</span><em>RADAR</em></div>
-        <div className="network"><i className={status}/><span>Robinhood Chain</span><b>{status === 'loading' ? 'SYNCING' : status === 'live' ? 'CONNECTED' : status.toUpperCase()}</b></div>
+        {personal && <div className="network"><i className={status}/><span>Robinhood Chain</span><b>{status === 'loading' ? 'SYNCING' : status === 'live' ? 'CONNECTED' : status.toUpperCase()}</b></div>}
         <div className="top-actions">
-          <div className="updated"><span>Saved sync attempt</span><strong>{data ? timeAgo(data.updatedAt) : '—'}</strong></div>
-          <button className="refresh" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button>
+          {personal ? <><div className="updated"><span>Saved sync attempt</span><strong>{data ? timeAgo(data.updatedAt) : '—'}</strong></div>
+          <button className="refresh" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
+            <span title={data ? new Date(data.updatedAt).toISOString() : undefined}>Last sync: {data ? timeAgo(data.updatedAt) : 'waiting for data'}</span>
+            <small>Updates every 15 minutes</small>
+          </div>}
           <div className="read-only"><ShieldCheck size={16}/><span>Read-only</span></div>
         </div>
       </header>
 
       <main>
         <div className="page-title"><div><span>Robinhood Chain · Chain ID 4663</span><h1>{view}</h1></div><p>{view === 'Cockpit' ? (personal ? 'Personal decision desk — inventory and market context.' : 'Read your wallet’s mint inventory and maturity schedule.') : view === 'Overview' ? 'Market, protocol, and activity snapshot for FUEL / MORE.' : `Focused ${view.toLowerCase()} intelligence from public data.`}</p></div>
-        {error && <div className="status-banner"><Activity size={16}/>{personal ? error : data ? 'Some data is delayed or unavailable. Check the timestamp beside each value.' : error}</div>}
+        {error && (personal || !data) && <div className="status-banner"><Activity size={16}/>{personal ? error : data ? 'Some data is delayed or unavailable. Check the timestamp beside each value.' : error}</div>}
 
-        {data && <SnapshotFreshness data={data}/>}
+        {personal && data && <SnapshotFreshness data={data}/>}
         {data && Diagnostics && <Diagnostics data={data}/>}
         {view === 'Cockpit' && data && <Cockpit data={data}/>}
         {view === 'Positions' && <PositionLookup defaultWallet={personal?.defaultWallet}/>}

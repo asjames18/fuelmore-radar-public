@@ -15,7 +15,7 @@ try {
   const previous = response.ok ? decodeDashboard(await response.text()) : null
   if (response.ok && !previous) throw new Error('Existing snapshot is invalid; publication withheld')
   if (!process.env.RPC_URL) throw new Error('RPC configuration missing')
-  const incoming = await fetchRadarData(process.env.RPC_URL)
+  const incoming = await fetchRadarData(process.env.RPC_URL, { blockscoutApiKey: process.env.BLOCKSCOUT_API_KEY })
   const next = mergeDashboard(previous, incoming)
   const body = encodeDashboard(next)
   if (!decodeDashboard(body)) throw new Error('Snapshot validation failed')

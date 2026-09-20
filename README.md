@@ -63,15 +63,23 @@ host, with RPC_URL and the Cloudflare storage variables above. Keep one writer p
 KV namespace. The script uses the shared adapters and preserves complete source
 groups on failed reads. GET /api/dashboard serves saved public aggregates; visitors
 check that copy every minute and retain an edition-local cache for instant reloads.
-Source timestamps identify retained and delayed values. Wallet reads stay separate.
+Source timestamps are preserved in storage. The public header shows last sync
+time and cadence without diagnostics or manual refresh controls. Wallet reads stay separate.
 Failed first publication means unavailable data, never invented zero values.
+
+When direct explorer requests are challenged, set backend-only BLOCKSCOUT_API_KEY
+for the official Blockscout PRO API free plan (dev.blockscout.com). The publisher
+uses chain 4663 and spaces explorer calls below five requests per second. Never
+expose this key in VITE variables. A first successful explorer observation is needed
+before holder data can be retained after a failed refresh.
 
 ## Pages and interpretation
 
 - Overview: market and protocol snapshots, daily FUEL minting versus claiming.
 - Cockpit and Positions: enter any public wallet; no wallet is preselected.
-- Markets: choose FUEL or MORE with its own scale. Charts contain observations
-  collected by this browser, not historical candles. Flat prices can be real.
+- Markets: choose FUEL or MORE with its own scale. Charts compare percentage price change from one shared baseline, or both pool
+  liquidities in USD, with individual-token views, range filters, and zoom handles.
+  History contains saved observations on this browser, not historical candles.
 - Protocol and Contracts: contract state and source-match metadata.
 - Planner: Coming soon while calculations undergo release validation.
 
