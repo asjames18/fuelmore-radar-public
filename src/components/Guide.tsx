@@ -33,8 +33,10 @@ export function Guide() {
       <div className="guide-body">
         <p>
           Token cards show live price, liquidity, and 24-hour change for FUEL and MORE.
-          The chart is built from our own 15-minute snapshots. If you see a gap, the
-          collector missed a beat — we would rather show the gap than invent data.
+          Daily pulse tracks minting and claiming wallets today and over the last
+          seven days, and upcoming maturities lists MORE vesting in the next few
+          days. When a value is unavailable we show it as missing instead of
+          guessing.
         </p>
         <p>
           Recent activity lists the latest on-chain transfers for both tokens, each

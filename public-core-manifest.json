@@ -12,7 +12,7 @@
     "src/components/FeePreview.tsx": "7163919fbe0b63527bf071d40a6999abd0971ca8aab4863b78369bf8106ed9a5",
     "src/components/FuelActivity.test.tsx": "46b63343fd65c89c221098c5fcdad8471bf28cd2eea77be119bc535e2739f7fc",
     "src/components/FuelActivity.tsx": "6629960ebac6f326a120806f821fe9d716e3e1309a479023cb9a15b1f63cb7d5",
-    "src/components/Guide.tsx": "f9758093b00aed28c19c9d359c5a6238e68cbe8433b61acdc03c120f407c026b",
+    "src/components/Guide.tsx": "44b83e6bcbbb9f9853533745a019b763228bb509c6df26bccdd8f8a2eac23918",
     "src/components/HolderBoard.test.tsx": "9a6488094c7a555a8f87dd7989b671fa247707b623e59a99cef9b0a1639d5cb3",
     "src/components/HolderBoard.tsx": "3ce3efb720829e6597711e4fb035822f4956443619301c49dcad849c67696dce",
     "src/components/MarketCard.tsx": "c78e4681f39d60f8bba695d4c486fc342a91c4a02a5da118a2def98ec6668fdc",
