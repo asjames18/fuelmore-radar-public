@@ -32,6 +32,7 @@ import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
 import { HolderBoard } from './components/HolderBoard'
 import { FeePreview } from './components/FeePreview'
+import { DonateChip } from './components/DonateChip'
 import { DEXSCREENER, PAIRS } from './lib/contracts'
 import { formatUsd, shortAddress, timeAgo } from './lib/format'
 import type { HistoryPoint, RadarData } from './lib/types'
@@ -207,7 +208,35 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         </>}
       </main>
 
-      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <div className="donate-mobile">
+        <DonateChip/>
+        <small>Donations support the Radar · send on any chain</small>
+      </div>
+      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><DonateChip/><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {navItems.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => selectView(name)}><Icon size={19}/><span>{name}</span></button>)}

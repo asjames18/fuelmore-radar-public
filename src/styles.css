@@ -250,6 +250,12 @@ main { padding: 20px 22px 36px; max-width: 1800px; margin: 0 auto; }
 
 footer { min-height: 62px; display: flex; align-items: center; gap: 16px; padding: 0 22px; border-top: 1px solid var(--line); color: var(--faint); font: 9px var(--mono); }
 footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } footer a { margin-left: auto; color: var(--muted); } footer a:hover { color: var(--green); }
+.donate-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #245c34; background: #07150a; color: var(--muted); font: 10px var(--mono); padding: 7px 11px; border-radius: 999px; cursor: pointer; }
+.donate-chip:hover { border-color: var(--green); color: var(--text); }
+.donate-chip:hover .donate-label { color: var(--green); }
+.donate-chip code { font: inherit; color: inherit; }
+.donate-chip .donate-state { min-width: 34px; text-align: left; color: var(--green); }
+.donate-mobile { display: none; }
 .mobile-nav { display: none; }.nav-scrim { display: none; }
 
 @media (max-width: 1180px) {
@@ -313,6 +319,8 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
   .mobile-nav button { display: grid; place-content: center; justify-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font: 9px var(--mono); }
   .mobile-nav button.selected { color: var(--green); background: #06130a; }
   footer { display: none; }
+  .donate-mobile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 16px 96px; border-top: 1px solid var(--line); }
+  .donate-mobile small { color: var(--faint); font: 9px var(--mono); text-align: center; }
 }
 
 @media (max-width: 520px) {
