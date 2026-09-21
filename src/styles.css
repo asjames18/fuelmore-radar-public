@@ -304,9 +304,6 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
   .stats-group .stat-cell { border-bottom: 1px solid var(--line); }
   .stats-group .stat-cell:nth-child(2n) { border-right: 0; }
   .stats-group .stat-cell:last-child { border-bottom: 0; }
-  .holder-grid { grid-template-columns: 1fr; }
-  .holder-column { border-right: 0; border-bottom: 1px solid var(--line); }
-  .holder-column:last-child { border-bottom: 0; }
   .contract-header { display: none; }
   .contract-row { grid-template-columns: 1fr auto 34px; padding: 9px 0; }
   .contract-row > strong { grid-column: 1; }.contract-row > span:nth-of-type(1) { grid-column: 1; font-size: 8px; margin-top: 4px; }
@@ -676,3 +673,14 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .claim-countdown.live .claim-countdown-label { color: var(--green); }
 .claim-countdown.live { border-color: var(--green); }
 @media (max-width: 560px) { .claim-countdown-digits { font-size: 24px; } }
+
+/* Mobile holder-board overrides live here (after the base rules) so they win on equal specificity. */
+@media (max-width: 860px) {
+  .holder-grid { grid-template-columns: 1fr; }
+  .holder-column { border-right: 0; border-bottom: 1px solid var(--line); }
+  .holder-column:last-child { border-bottom: 0; }
+  .holder-column li a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 520px) {
+  .panel-heading { flex-wrap: wrap; row-gap: 10px; }
+}

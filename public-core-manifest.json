@@ -79,7 +79,7 @@
     "src/lib/wallet.ts": "4459f8592692a3353b65f016d5f195c17ce54f8ce8549208654a76e33ba8ace9",
     "src/lib/watchlist.test.ts": "d6527e62ad672d6e7f66b1aaaa33a4a5740dd7b046e75bf00a0e5c81bb461c27",
     "src/lib/watchlist.ts": "590c2f506e3fba90f93f657acfdbf6f2ea4242049e4ff0d45c5ac94f65a63225",
-    "src/styles.css": "17d61d5bbb9b2d19ab8afbef37235abb19913cedef1b7ff0886b89aaf7a3f469",
+    "src/styles.css": "c1da2080345bb6eb383bc83b18ecd3b7d2bdd11b3e33bc7e138e93cf7bff1c4e",
     "src/useRadarData.test.tsx": "c067106dbfe6658057e5780d0592c6290d6713f3b9fa30450b7d130ad8cbd400",
     "src/useRadarData.ts": "23725cd491eac092d11b6fe21256bf661d8e6c6313521935fd156e8f33e79663",
     "src/vite-env.d.ts": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5",
