@@ -1,11 +1,11 @@
 import { useState, type ComponentType } from 'react'
 import {
   Activity,
-  Calculator,
+  BookOpen,
   Blocks,
+  Calculator,
   ChartNoAxesCombined,
   CircleDollarSign,
-  Compass,
   FileCode2,
   Menu,
   Radar,
@@ -17,11 +17,13 @@ import {
 import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
 import { PublicCockpit } from './components/PublicCockpit'
+import { CockpitView } from './components/CockpitView'
+import { Guide } from './components/Guide'
+import { PlannerComingSoon } from './components/PlannerComingSoon'
 import { ActivityTable } from './components/ActivityTable'
 import { ContractRegistry } from './components/ContractRegistry'
 import { MarketCard } from './components/MarketCard'
 import { MarketChart } from './components/MarketChart'
-import { PositionLookup } from './components/PositionLookup'
 import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
 import { HolderBoard } from './components/HolderBoard'
@@ -33,17 +35,27 @@ import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
 
-type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Positions' | 'Planner' | 'Contracts'
+type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Contracts' | 'Guide' | 'Planner'
 
 const NAV: Array<{ name: View; Icon: typeof Activity }> = [
   { name: 'Overview', Icon: ChartNoAxesCombined },
-  { name: 'Cockpit', Icon: Compass },
+  { name: 'Cockpit', Icon: WalletCards },
   { name: 'Markets', Icon: CircleDollarSign },
   { name: 'Protocol', Icon: Blocks },
-  { name: 'Positions', Icon: WalletCards },
-  { name: 'Planner', Icon: Calculator },
   { name: 'Contracts', Icon: FileCode2 },
+  { name: 'Guide', Icon: BookOpen },
+  { name: 'Planner', Icon: Calculator },
 ]
+
+const SUBTITLES: Record<View, string> = {
+  Overview: 'Live market snapshot for FUEL / MORE on Robinhood Chain.',
+  Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
+  Markets: 'Liquidity depth and holder distribution.',
+  Protocol: 'Protocol health, fee flow, and minting activity.',
+  Contracts: 'Verified contract addresses — check the address, not the name.',
+  Guide: 'How to use the Radar, piece by piece.',
+  Planner: 'Coming soon — prediction plans from current and future numbers.',
+}
 
 function DataSources() {
   return <div className="source-block">
@@ -55,13 +67,13 @@ function DataSources() {
   </div>
 }
 
-function Sidebar({ view, setView, open, close }: { view: View; setView: (view: View) => void; open: boolean; close: () => void }) {
+function Sidebar({ view, setView, open, close, items }: { view: View; setView: (view: View) => void; open: boolean; close: () => void; items: typeof NAV }) {
   return <>
     {open && <button className="nav-scrim" onClick={close} aria-label="Close navigation"/>}
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="side-brand"><Radar size={22}/><span>RADAR</span><button onClick={close} aria-label="Close menu"><X size={20}/></button></div>
       <nav aria-label="Primary navigation">
-        {NAV.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => { setView(name); close() }}><Icon size={18}/><span>{name}</span></button>)}
+        {items.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => { setView(name); close() }}><Icon size={18}/><span>{name}</span></button>)}
       </nav>
       <DataSources/>
       <div className="readonly-card"><ShieldCheck size={18}/><div><strong>Read-only mode</strong><span>No wallet required</span></div></div>
@@ -75,11 +87,8 @@ function TokenCards({ data }: { data: RadarData }) {
   </div>
 }
 
-function MarketsView({ data, history }: { data: RadarData; history: ReturnType<typeof useRadarData>['history'] }) {
+function MarketsView({ data }: { data: RadarData }) {
   return <>
-    <TokenCards data={data}/>
-    <MarketChart history={history}/>
-    <HolderBoard holders={data.holders}/>
     <section className="panel pool-table-panel">
       <div className="panel-heading"><div><h2>Pool execution context</h2><p>Price alone is not executable liquidity</p></div></div>
       <div className="pool-table">
@@ -88,6 +97,7 @@ function MarketsView({ data, history }: { data: RadarData; history: ReturnType<t
         </a>)}
       </div>
     </section>
+    <HolderBoard holders={data.holders}/>
   </>
 }
 
@@ -112,11 +122,12 @@ function App({ personal }: { personal?: PersonalFeatures }) {
   const selectView = (next: View) => {
     setView(next)
     track('view_selected')
-    if (next === 'Cockpit') track('cockpit_open')
   }
+  // The private app renders its full Planner; public visitors see the coming-soon placeholder.
+  const navItems = NAV
 
   return <div className="app-shell">
-    <Sidebar view={view} setView={selectView} open={menuOpen} close={() => setMenuOpen(false)}/>
+    <Sidebar view={view} setView={selectView} open={menuOpen} close={() => setMenuOpen(false)} items={navItems}/>
     <div className="workspace">
       <header className="topbar">
         <button className="menu-button" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button>
@@ -133,27 +144,24 @@ function App({ personal }: { personal?: PersonalFeatures }) {
       </header>
 
       <main>
-        <div className="page-title"><div><span>Robinhood Chain · Chain ID 4663</span><h1>{view}</h1></div><p>{view === 'Cockpit' ? (personal ? 'Personal decision desk — inventory and market context.' : 'Read your wallet’s mint inventory and maturity schedule.') : view === 'Overview' ? 'Market, protocol, and activity snapshot for FUEL / MORE.' : `Focused ${view.toLowerCase()} intelligence from public data.`}</p></div>
+        <div className="page-title"><div><span>Robinhood Chain · Chain ID 4663</span><h1>{view}</h1></div><p>{SUBTITLES[view]}</p></div>
         {error && (personal || !data) && <div className="status-banner"><Activity size={16}/>{personal ? error : data ? 'Some data is delayed or unavailable. Check the timestamp beside each value.' : error}</div>}
 
         {personal && data && <SnapshotFreshness data={data}/>}
         {data && Diagnostics && <Diagnostics data={data}/>}
-        {view === 'Cockpit' && data && <Cockpit data={data}/>}
-        {view === 'Positions' && <PositionLookup defaultWallet={personal?.defaultWallet}/>}
-        {view === 'Planner' && (Planner ? <Planner/> : <section className="panel"><div className="panel-heading"><div><h2>Coming soon</h2><p>Verified planning tools are being prepared. Wallet lookup and maturity schedules are available now.</p></div></div></section>)}
-        {(view === 'Overview' || view === 'Protocol') && <FuelActivity/>}
+        {view === 'Cockpit' && <CockpitView data={data} defaultWallet={personal?.defaultWallet} Cockpit={Cockpit}/>}
+        {view === 'Guide' && <Guide/>}
+        {view === 'Planner' && (Planner ? <Planner/> : <PlannerComingSoon/>)}
+        {view === 'Protocol' && <FuelActivity/>}
         {!data ? <div className="loading-grid" aria-label="Loading dashboard"><div/><div/><div/><div/></div> : <>
           {view === 'Overview' && <>
             <TokenCards data={data}/>
             <div className={Risk ? "primary-grid" : "public-chart"}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
-            <ProtocolFlow protocol={data.protocol}/>
-            <ProtocolStats protocol={data.protocol}/>
             {Analytics && <Analytics/>}
-            <HolderBoard holders={data.holders}/>
-            <div className="bottom-grid"><ContractRegistry contracts={data.contracts}/><ActivityTable activity={data.activity} sources={data.sources}/></div>
+            <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}
-          {view === 'Markets' && <MarketsView data={data} history={history}/>} 
-          {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/><HolderBoard holders={data.holders}/>{Risk && <Risk data={data}/>}</>}
+          {view === 'Markets' && <MarketsView data={data}/>}
+          {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
       </main>
@@ -161,7 +169,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
       <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {NAV.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => selectView(name)}><Icon size={19}/><span>{name}</span></button>)}
+      {navItems.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => selectView(name)}><Icon size={19}/><span>{name}</span></button>)}
     </nav>
   </div>
 }

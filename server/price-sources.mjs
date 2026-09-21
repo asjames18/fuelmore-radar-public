@@ -7,11 +7,14 @@
 //   2. GeckoTerminal (free, no key) — fallback. Returns HTTP 429 from
 //      Cloudflare Workers shared egress (probed 2026-09-21, persistent across
 //      repeated probes); kept in rotation in case its throttling is transient.
-//   3. DexPaprika (free, no key) — last resort. Returns HTTP 402 from Workers
-//      egress: the shared keyless monthly credit quota is exhausted
-//      (probed 2026-09-21). A free DexPaprika API key (dedicated quota) would
-//      make this a reliable primary; until then it fast-fails and costs one
-//      subrequest per pair.
+//   3. DexPaprika — last resort keyless, primary once keyed. Keyless calls
+//      return HTTP 402 from Workers egress: the shared keyless monthly
+//      credit quota is exhausted (probed 2026-09-21). A free DexPaprika API
+//      key, supplied as the DEXPAPRIKA_API_KEY Worker secret, unlocks
+//      dedicated monthly quota. The key is sent as the entire `Authorization`
+//      header value (no Bearer prefix — any prefix returns 401). Until a
+//      key is configured it fast-fails on 402 and costs one subrequest per
+//      pair.
 //
 // Order last changed 2026-09-21: live egress probes from a Cloudflare Worker
 // showed GeckoTerminal 429 and DexPaprika 402 while Dexscreener returned 200,
@@ -256,10 +259,17 @@ async function fetchGeckoPairSnapshot({ pairKey, pairAddress, tokenAddress, fetc
   }
 }
 
-async function fetchDexPaprikaPairSnapshot({ pairKey, pairAddress, tokenAddress, fetchImpl, sleep }) {
+async function fetchDexPaprikaPairSnapshot({ pairKey, pairAddress, tokenAddress, fetchImpl, sleep, dexpaprikaApiKey }) {
   const url = `${DEXPAPRIKA_API}/${pairAddress}`
   const source = 'dexpaprika'
-  const response = await fetchJsonWithRetry(url, { pairKey, source, label: 'DexPaprika', fetchImpl, sleep })
+  // DexPaprika reads the key as the whole Authorization value; any prefix
+  // (Bearer/Token/ApiKey) returns 401. The header is omitted entirely when
+  // no key is configured, preserving the old keyless behavior.
+  const headers =
+    typeof dexpaprikaApiKey === 'string' && dexpaprikaApiKey.length > 0
+      ? { Authorization: dexpaprikaApiKey }
+      : {}
+  const response = await fetchJsonWithRetry(url, { pairKey, source, label: 'DexPaprika', fetchImpl, sleep, headers })
   const payload = await response.json()
   try {
     return validateDexPaprikaPool(payload, pairKey, pairAddress, tokenAddress)

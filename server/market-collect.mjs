@@ -40,7 +40,7 @@ function defaultSleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
 }
 
-async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources) {
+async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources, dexpaprikaApiKey) {
   const { pairAddress, tokenAddress } = TOKENS[pairKey]
   for (const sourceName of sources) {
     const source = SOURCES[sourceName]
@@ -49,7 +49,7 @@ async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources) {
       continue
     }
     try {
-      const result = await source.fetchPair({ pairKey, pairAddress, tokenAddress, fetchImpl, sleep })
+      const result = await source.fetchPair({ pairKey, pairAddress, tokenAddress, fetchImpl, sleep, dexpaprikaApiKey })
       console.log(
         `market snapshot [${pairKey}]: source ${sourceName} succeeded ` +
           `(price ${result.priceUsd}, liquidity ${result.liquidityUsd})`,
@@ -73,9 +73,15 @@ async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources) {
 export async function collectMarketSnapshot(fetchImpl = fetch, nowSeconds = Math.floor(Date.now() / 1000), options = {}) {
   const sleep = options.sleep ?? defaultSleep
   const sources = Array.isArray(options.sources) && options.sources.length > 0 ? options.sources : SOURCE_ORDER
+  // Only DexPaprika consumes this; other sources ignore the extra argument.
+  // The raw value is never logged.
+  const dexpaprikaApiKey =
+    typeof options.dexpaprikaApiKey === 'string' && options.dexpaprikaApiKey.length > 0
+      ? options.dexpaprikaApiKey
+      : null
   const results = await Promise.allSettled([
-    fetchPairSnapshot('fuel', fetchImpl, sleep, sources),
-    fetchPairSnapshot('more', fetchImpl, sleep, sources),
+    fetchPairSnapshot('fuel', fetchImpl, sleep, sources, dexpaprikaApiKey),
+    fetchPairSnapshot('more', fetchImpl, sleep, sources, dexpaprikaApiKey),
   ])
   const [fuel, more] = results.map((r) => (r.status === 'fulfilled' ? r.value : null))
   // All-or-nothing: both sides must fetch and validate. On any failure the
@@ -139,9 +145,18 @@ export async function runMarketSnapshot(env, options = {}) {
     console.error('Market snapshot skipped: ACTIVITY KV binding unavailable')
     return { ok: false, reason: 'kv-unavailable' }
   }
+  // DEXPAPRIKA_API_KEY is a Worker secret set in the Cloudflare dashboard.
+  // An explicit options.dexpaprikaApiKey (tests, manual runs) wins. The raw
+  // value is never logged — only whether keyed mode is active.
+  const merged = { ...options }
+  if (merged.dexpaprikaApiKey == null) {
+    const envKey = env?.DEXPAPRIKA_API_KEY
+    if (typeof envKey === 'string' && envKey.length > 0) merged.dexpaprikaApiKey = envKey
+  }
+  console.log(`market snapshot: DexPaprika ${merged.dexpaprikaApiKey ? 'keyed' : 'keyless'} mode`)
   let point
   try {
-    point = await collectMarketSnapshot(undefined, undefined, options)
+    point = await collectMarketSnapshot(undefined, undefined, merged)
   } catch (error) {
     console.error('Market snapshot failed:', error instanceof Error ? error.message : error)
     return { ok: false, reason: 'fetch-failed' }

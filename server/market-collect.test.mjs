@@ -754,3 +754,118 @@ describe('runMarketSnapshot success path', () => {
     assert.equal(result.reason, 'kv-unavailable')
   })
 })
+
+describe('dexpaprika api key', () => {
+  it('sends the key as the whole Authorization value (no Bearer prefix)', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const seen = []
+    const fetchImpl = async (url, init) => {
+      seen.push({ url: String(url), init })
+      const payload = String(url).includes(FUEL_PAIR) ? paprikaFuel() : paprikaMore()
+      return ok(payload)()
+    }
+    try {
+      const point = await collectMarketSnapshot(fetchImpl, 1_700_000_000, {
+        sleep,
+        sources: ['dexpaprika'],
+        dexpaprikaApiKey: 'api_test_key_123',
+      })
+      assert.ok(point, 'expected a snapshot point')
+      const paprikaCalls = seen.filter((c) => c.url.includes('api.dexpaprika.com'))
+      assert.equal(paprikaCalls.length, 2)
+      for (const call of paprikaCalls) {
+        assert.equal(call.init.headers.Authorization, 'api_test_key_123')
+      }
+      // The raw key must never reach logs.
+      assert.ok(!console.logs.join(' ').includes('api_test_key_123'), console.logs.join(' | '))
+      assert.ok(!console.errors.join(' ').includes('api_test_key_123'), console.errors.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('omits the Authorization header entirely when no key is configured', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const seen = []
+    const fetchImpl = async (url, init) => {
+      seen.push({ url: String(url), init })
+      const payload = String(url).includes(FUEL_PAIR) ? paprikaFuel() : paprikaMore()
+      return ok(payload)()
+    }
+    try {
+      const point = await collectMarketSnapshot(fetchImpl, 1_700_000_000, { sleep, sources: ['dexpaprika'] })
+      assert.ok(point, 'expected a snapshot point')
+      const paprikaCalls = seen.filter((c) => c.url.includes('api.dexpaprika.com'))
+      assert.equal(paprikaCalls.length, 2)
+      for (const call of paprikaCalls) {
+        assert.ok(!('Authorization' in (call.init.headers ?? {})), JSON.stringify(call.init.headers))
+      }
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('runMarketSnapshot threads env.DEXPAPRIKA_API_KEY into the collector', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const writes = []
+    const seen = []
+    const env = {
+      ACTIVITY: {
+        get: async () => null,
+        put: async (...args) => { writes.push(args) },
+      },
+      DEXPAPRIKA_API_KEY: 'api_env_key_456',
+    }
+    try {
+      mock.method(globalThis, 'fetch', async (url, init) => {
+        const key = String(url)
+        seen.push({ url: key, init })
+        if (!key.includes('dexpaprika')) return ok({}, 404)()
+        const payload = key.includes(FUEL_PAIR) ? paprikaFuel() : paprikaMore()
+        return ok(payload)()
+      })
+      const result = await runMarketSnapshot(env, { sleep, sources: ['dexpaprika'] })
+      assert.equal(result.ok, true)
+      assert.equal(writes.length, 1)
+      const paprikaCalls = seen.filter((c) => c.url.includes('api.dexpaprika.com'))
+      assert.equal(paprikaCalls.length, 2)
+      for (const call of paprikaCalls) {
+        assert.equal(call.init.headers.Authorization, 'api_env_key_456')
+      }
+      assert.ok(console.logs.some((m) => m.includes('DexPaprika keyed mode')), console.logs.join(' | '))
+      assert.ok(!console.logs.join(' ').includes('api_env_key_456'), console.logs.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('runMarketSnapshot stays keyless when no secret is configured', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const seen = []
+    const env = {
+      ACTIVITY: { get: async () => null, put: async () => {} },
+    }
+    try {
+      mock.method(globalThis, 'fetch', async (url, init) => {
+        const key = String(url)
+        seen.push({ url: key, init })
+        if (!key.includes('dexpaprika')) return ok({}, 404)()
+        const payload = key.includes(FUEL_PAIR) ? paprikaFuel() : paprikaMore()
+        return ok(payload)()
+      })
+      const result = await runMarketSnapshot(env, { sleep, sources: ['dexpaprika'] })
+      assert.equal(result.ok, true)
+      const paprikaCalls = seen.filter((c) => c.url.includes('api.dexpaprika.com'))
+      for (const call of paprikaCalls) {
+        assert.ok(!('Authorization' in (call.init.headers ?? {})), JSON.stringify(call.init.headers))
+      }
+      assert.ok(console.logs.some((m) => m.includes('DexPaprika keyless mode')), console.logs.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+})

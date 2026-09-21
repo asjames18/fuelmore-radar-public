@@ -1,6 +1,5 @@
 import { MorePositions } from './MorePositions'
 import { WalletCalendar } from './WalletCalendar'
-import { FeePreview } from './FeePreview'
 import { dateCardClass, mintCardClass } from '../lib/maturity'
 import { PositionDateBadge, PositionMintBadge } from './PositionStatus'
 import { normalizeWatchlist, readWatchlist, saveWatchlist } from '../lib/watchlist'
@@ -124,7 +123,6 @@ export function PositionLookup({ defaultWallet = '' }: { defaultWallet?: string 
         </article>
         <WalletCalendar key={position.address} position={position}/>
         <MorePositions key={`more-${position.address}`} address={position.address}/>
-        <FeePreview/>
         <div className="batch-positions">
           <h3>Batch FUEL mints</h3>
           <p>Snapshot block {position.blockNumber.toString()} · {position.batch.total === null ? 'Batch inventory unavailable' : `${position.batch.items.length} of ${position.batch.total} proxy slots checked`}</p>
