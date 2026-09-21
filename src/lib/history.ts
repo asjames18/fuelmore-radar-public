@@ -1,7 +1,10 @@
 import type { HistoryPoint, PairSnapshot } from './types'
 
 import { storageKey } from './storage'
-const key = () => storageKey('history')
+// v2: the pre-fix local series could contain the poisoned FUEL quote served by
+// the v1 market-history API, so it is never carried forward. Fresh browser
+// points accumulate from the honest feed and merge with server v2 history.
+const key = () => storageKey('history-v2')
 const MAX_AGE = 30 * 24 * 60 * 60 * 1000
 const MAX_POINTS = 720
 let sessionHistory: HistoryPoint[] = []

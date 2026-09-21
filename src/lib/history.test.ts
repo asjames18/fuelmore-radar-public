@@ -64,6 +64,19 @@ describe('local market history', () => {
     vi.advanceTimersByTime(20_000)
     expect(recordHistory([pair])).toHaveLength(2)
   })
+
+  it('ignores the pre-v2 local series that may hold the poisoned quote', async () => {
+    // Data written under the old key is never read back; only the v2 key is used.
+    const calls: string[] = []
+    vi.mocked(localStorage.getItem).mockImplementation((k: string) => {
+      calls.push(k)
+      return k.includes('history-v2') ? null : JSON.stringify([point(now)])
+    })
+    const { readHistory } = await import('./history')
+    expect(readHistory()).toEqual([])
+    expect(calls.some((k) => k.includes('history-v2'))).toBe(true)
+    expect(calls.some((k) => !k.includes('history-v2') && k.includes('history'))).toBe(false)
+  })
 })
 
 describe('remote market history', () => {
