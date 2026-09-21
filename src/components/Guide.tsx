@@ -127,47 +127,6 @@ export function Guide() {
       </div>
     </section>
 
-    <section className="panel" aria-labelledby="guide-speculation">
-      <div className="panel-heading"><div>
-        <h2 id="guide-speculation">Speculation — the forward view</h2>
-        <p>Where today's chain state points, not a forecast</p>
-      </div></div>
-      <div className="guide-body">
-        <p>
-          Speculation takes what is currently happening on-chain — mint pace,
-          claim pace, observed burns, supplies, market caps, pool liquidity — and
-          projects it forward 90, 180, or 365 days. The headline path is the
-          <strong> net-supply trajectory</strong>: today's FUEL supply plus
-          (rewards claimed per day minus FUEL burned per day at the <i>observed</i> burn
-          pace), extended flat. A second line reruns the same math on the most recent
-          7 days, so the gap between the lines shows whether activity is accelerating
-          or cooling. A dotted overlay adds potential claims from the deterministic
-          maturity schedule, valued at the observed average claim size. A supply
-          cannot go negative: if the pace would drive the trajectory to zero, the
-          line stops there and says so — past that point the flat-pace assumption breaks.
-        </p>
-        <p>
-          Burns are shown as observed first: cumulative FUEL and MORE burned and the
-          ETH spent doing it. A measured burn pace appears only when timestamped
-          counter history exists; otherwise the page says so instead of inventing one.
-          Separately, a labeled <strong>fee-routing upper bound</strong> shows the most
-          ETH that mint and claim fees could send the burners at the trailing pace
-          (45% MintVault / 25% FUEL burner / 30% MORE burner), converted at current
-          pool prices as if at spot with no slippage — a ceiling on fee-driven
-          buying, never burns that happened. On the first unlock day, when the
-          pre-unlock pace stops describing the market, trajectories are suspended
-          and the page shows the day's observed claims with an honest-state banner instead.
-        </p>
-        <p>
-          <em>Implied price</em> is pure arithmetic — today's market-cap
-          snapshot divided by the projected supply. It shows the direction and
-          scale the supply pressure implies, not where price is going. Every
-          section computes from its own live inputs, so one missing feed
-          degrades one section instead of blanking the page, and every input
-          carries an "as of" time on the method panel at the bottom.
-        </p>
-      </div>
-    </section>
 
     <section className="panel" aria-labelledby="guide-planner">
       <div className="panel-heading"><div>

@@ -69,7 +69,7 @@ export type ActivityItem = {
 
 export type ProtocolSnapshot = {
   totalSupply: bigint | null
-  /** MORE total supply, read through the ERC-20 proxy. Added 2026-09-21 for the Speculation view. */
+  /** MORE total supply, read through the ERC-20 proxy. Added 2026-09-21. */
   moreTotalSupply: bigint | null
   globalRank: bigint | null
   activeMinters: bigint | null

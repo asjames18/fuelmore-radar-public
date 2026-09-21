@@ -37,7 +37,7 @@ export function plannedDate(timestamp: number, days: string): string | null {
 const safe = async <T>(promise: Promise<T>): Promise<T | null> => { try { return await promise } catch { return null } }
 /**
  * The current per-mint fee in ETH, read live from the FUEL token contract at
- * the current gas price. Used by the Speculation view to convert the trailing
+ * the current gas price. Used to convert the trailing
  * mint pace into daily ETH flowing to the burners. Returns nulls (never zero)
  * when any read fails.
  */

@@ -357,6 +357,16 @@ export type FutureSupplies = {
   more: number | null
 }
 
+export type SuppliesResult = {
+  supplies: FutureSupplies[]
+  /**
+   * First date the MORE burn path would drive supply to zero or below;
+   * null when the pace never depletes the supply within the horizon.
+   * Mirrors projectNetSupply's depletedAt: a supply cannot go negative.
+   */
+  moreDepletedAt: string | null
+}
+
 /**
  * Absolute future supplies shared by the price and liquidity scenarios.
  * FUEL paths anchor at current supply plus cumulative new inflows.
@@ -365,6 +375,12 @@ export type FutureSupplies = {
  * is "current supply minus projected burns through that date" — consistent
  * with the FUEL paths, which also include their first day's inflows.
  * Missing inputs yield null (gaps), never zero.
+ *
+ * A supply cannot go negative: once the fee-routing burn upper bound would
+ * drive MORE to zero or below, the MORE series gaps (null) from that date
+ * onward — past the zero-crossing the flat-pace assumption breaks and there
+ * is nothing honest to draw. The first such date is returned as
+ * moreDepletedAt so callers can say so in plain language.
  */
 export function projectSupplies(args: {
   fuelSupply: number | null
@@ -375,7 +391,7 @@ export function projectSupplies(args: {
   net?: NetSupplyResult | null
   /** Net-flow FUEL trajectory at the recent-window pace (pace-band edge). */
   netRecent?: NetSupplyResult | null
-}): FutureSupplies[] | null {
+}): SuppliesResult | null {
   const { fuelSupply, moreSupply, supply, burns, net = null, netRecent = null } = args
   const netPts = net?.points ?? null
   const netRecentPts = netRecent?.points ?? null
@@ -386,23 +402,33 @@ export function projectSupplies(args: {
   // Observed cumulative burns at the start date: the day-1 point minus one day's pace.
   const burnBaseline = burn0 !== null && burnPace !== null ? burn0 - burnPace : null
   const out: FutureSupplies[] = []
+  let moreDepletedAt: string | null = null
   for (let i = 0; i < n; i++) {
     const s = supply?.[i]
     const b = burns?.points[i]
     const date = s?.date ?? b?.date ?? netPts?.[i]?.date ?? netRecentPts?.[i]?.date
     if (!date) break
+    let more: number | null = null
+    if (moreSupply !== null && b?.more != null && burnBaseline !== null) {
+      const projected = moreSupply - (b.more - burnBaseline)
+      if (moreDepletedAt !== null || projected <= 0) {
+        // Depleted: gap from here on. Supply cannot go negative, and past
+        // the zero-crossing the flat pace has nothing honest left to draw.
+        if (moreDepletedAt === null) moreDepletedAt = date
+      } else {
+        more = projected
+      }
+    }
     out.push({
       date,
       fuelScheduled: s && fuelSupply !== null ? fuelSupply + s.scheduled : null,
       fuelPaced: s && fuelSupply !== null ? fuelSupply + s.paced : null,
       fuelNet: netPts?.[i]?.date === date ? netPts[i].supply : null,
       fuelNetRecent: netRecentPts?.[i]?.date === date ? netRecentPts[i].supply : null,
-      more: moreSupply !== null && b?.more != null && burnBaseline !== null
-        ? moreSupply - (b.more - burnBaseline)
-        : null,
+      more,
     })
   }
-  return out
+  return { supplies: out, moreDepletedAt }
 }
 
 export type PricePoint = {

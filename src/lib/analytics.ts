@@ -10,7 +10,6 @@ export type AnalyticsEvent =
   | 'refresh_clicked'
   | 'donate_clicked'
   | 'contract_copied'
-  | 'speculation_viewed'
 
 export function track(event: AnalyticsEvent): void {
   try {

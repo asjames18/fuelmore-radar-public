@@ -125,25 +125,48 @@ describe('projectSupplies', () => {
   }
   it('subtracts the first projected burn day: day-1 supply is current minus one day of burns', () => {
     const out = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply, burns })
-    expect(out).toHaveLength(2)
+    expect(out!.supplies).toHaveLength(2)
     // FUEL anchors at current supply plus cumulative new inflows.
-    expect(out![0].fuelScheduled).toBe(1_000_100)
-    expect(out![0].fuelPaced).toBe(1_000_050)
-    expect(out![1].fuelScheduled).toBe(1_000_250)
+    expect(out!.supplies[0].fuelScheduled).toBe(1_000_100)
+    expect(out!.supplies[0].fuelPaced).toBe(1_000_050)
+    expect(out!.supplies[1].fuelScheduled).toBe(1_000_250)
     // MORE anchors at current supply minus cumulative new projected burns,
     // starting with day 1's pace — not with "no burns subtracted yet".
-    expect(out![0].more).toBeCloseTo(499_970, 9)
-    expect(out![1].more).toBeCloseTo(499_940, 9)
+    expect(out!.supplies[0].more).toBeCloseTo(499_970, 9)
+    expect(out!.supplies[1].more).toBeCloseTo(499_940, 9)
+    // The small pace never depletes the 500k supply within the series.
+    expect(out!.moreDepletedAt).toBeNull()
   })
   it('emits gaps for whichever side lacks inputs, never zero', () => {
     const noBurns = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply, burns: null })
-    expect(noBurns![0].fuelScheduled).toBe(1_000_100)
-    expect(noBurns![0].more).toBeNull()
+    expect(noBurns!.supplies[0].fuelScheduled).toBe(1_000_100)
+    expect(noBurns!.supplies[0].more).toBeNull()
+    expect(noBurns!.moreDepletedAt).toBeNull()
     const noSupply = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply: null, burns })
-    expect(noSupply![0].fuelScheduled).toBeNull()
-    expect(noSupply![0].more).toBeCloseTo(499_970, 9)
+    expect(noSupply!.supplies[0].fuelScheduled).toBeNull()
+    expect(noSupply!.supplies[0].more).toBeCloseTo(499_970, 9)
     const noBaseline = projectSupplies({ fuelSupply: 1_000_000, moreSupply: null, supply, burns })
-    expect(noBaseline![0].more).toBeNull()
+    expect(noBaseline!.supplies[0].more).toBeNull()
+  })
+  it('stops the MORE series at the zero-crossing instead of drawing negative supply', () => {
+    // 500k supply against a 300k/day burn pace: the line crosses zero on
+    // day 2 and must gap from there on — a supply cannot go negative.
+    const fast = {
+      pace: { ethToFuelBurnerPerDay: 0.025, ethToMoreBurnerPerDay: 0.03, fuelPerDay: 250, morePerDay: 300_000 },
+      points: [
+        { date: '2026-09-20', fuel: 50250, more: 301_000 },
+        { date: '2026-09-21', fuel: 50500, more: 601_000 },
+        { date: '2026-09-22', fuel: 50750, more: 901_000 },
+      ],
+    }
+    const out = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply, burns: fast })
+    // Day 1: 500k − 300k = 200k, still positive.
+    expect(out!.supplies[0].more).toBeCloseTo(200_000, 9)
+    // Day 2 would be −100k: the series gaps instead.
+    expect(out!.supplies[1].more).toBeNull()
+    expect(out!.supplies[2].more).toBeNull()
+    // The first zero-crossing date is reported for the plain-language note.
+    expect(out!.moreDepletedAt).toBe('2026-09-21')
   })
   it('keeps the MORE series as a gap when the burn pace is unknown', () => {
     const gapped = {
@@ -154,13 +177,14 @@ describe('projectSupplies', () => {
       ],
     }
     const out = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply, burns: gapped })
-    expect(out![0].more).toBeNull()
-    expect(out![1].more).toBeNull()
+    expect(out!.supplies[0].more).toBeNull()
+    expect(out!.supplies[1].more).toBeNull()
+    expect(out!.moreDepletedAt).toBeNull()
   })
   it('uses the longer of the two series and returns null when both are empty', () => {
     const short = projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply: null, burns })
-    expect(short).toHaveLength(2)
-    expect(short![1].date).toBe('2026-09-21')
+    expect(short!.supplies).toHaveLength(2)
+    expect(short!.supplies[1].date).toBe('2026-09-21')
     expect(projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply: null, burns: null })).toBeNull()
     expect(projectSupplies({ fuelSupply: 1_000_000, moreSupply: 500_000, supply: [], burns: { pace: burns.pace, points: [] } })).toBeNull()
   })
@@ -339,17 +363,17 @@ describe('projectSupplies with net trajectories', () => {
   }
   it('maps net paths onto the shared date axis and gaps mismatched dates', () => {
     const out = projectSupplies({ fuelSupply: 1_000_000, moreSupply: null, supply: null, burns: null, net, netRecent })!
-    expect(out).toHaveLength(2)
-    expect(out[0].fuelNet).toBe(1_000_750)
-    expect(out[1].fuelNetRecent).toBe(1_002_000)
-    expect(out[0].fuelScheduled).toBeNull()
+    expect(out.supplies).toHaveLength(2)
+    expect(out.supplies[0].fuelNet).toBe(1_000_750)
+    expect(out.supplies[1].fuelNetRecent).toBe(1_002_000)
+    expect(out.supplies[0].fuelScheduled).toBeNull()
     const shifted = projectSupplies({ fuelSupply: 1_000_000, moreSupply: null, supply: [{ date: '2026-09-20', scheduled: 0, paced: 0 }, { date: '2026-09-21', scheduled: 0, paced: 0 }], burns: null, net: { points: [{ date: '2026-09-21', supply: 5 }], depletedAt: null }, netRecent: null })!
     // The net series only covers the second axis date, so the first row gaps
     // rather than borrowing the 2026-09-21 value, and the missing tail gaps.
-    expect(shifted).toHaveLength(2)
-    expect(shifted[0].date).toBe('2026-09-20')
-    expect(shifted[0].fuelNet).toBeNull()
-    expect(shifted[1].fuelNet).toBeNull()
+    expect(shifted.supplies).toHaveLength(2)
+    expect(shifted.supplies[0].date).toBe('2026-09-20')
+    expect(shifted.supplies[0].fuelNet).toBeNull()
+    expect(shifted.supplies[1].fuelNet).toBeNull()
   })
   it('carries depletion gaps through as nulls, never negative supplies', () => {
     const depleted = {
@@ -360,8 +384,8 @@ describe('projectSupplies with net trajectories', () => {
       depletedAt: '2026-09-21',
     }
     const out = projectSupplies({ fuelSupply: 1000, moreSupply: null, supply: null, burns: null, net: depleted, netRecent: null })!
-    expect(out[0].fuelNet).toBe(600)
-    expect(out[1].fuelNet).toBeNull()
+    expect(out.supplies[0].fuelNet).toBe(600)
+    expect(out.supplies[1].fuelNet).toBeNull()
   })
   it('stays null when every series is empty, even with net args present', () => {
     expect(projectSupplies({ fuelSupply: 1_000_000, moreSupply: null, supply: null, burns: null, net: { points: [], depletedAt: null }, netRecent: { points: [], depletedAt: null } })).toBeNull()

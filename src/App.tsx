@@ -12,7 +12,6 @@ import {
   Radar,
   RefreshCw,
   ShieldCheck,
-  Telescope,
   WalletCards,
   X,
 } from 'lucide-react'
@@ -26,7 +25,6 @@ import { ActivityTable } from './components/ActivityTable'
 import { ContractRegistry } from './components/ContractRegistry'
 import { MarketCard } from './components/MarketCard'
 import { MarketChart } from './components/MarketChart'
-import { SpeculationView } from './components/SpeculationView'
 import { OverviewStats } from './components/OverviewStats'
 import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
@@ -40,14 +38,13 @@ import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
 
-type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Speculation' | 'Contracts' | 'Guide' | 'Planner'
+type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Contracts' | 'Guide' | 'Planner'
 
 const NAV: Array<{ name: View; Icon: typeof Activity }> = [
   { name: 'Overview', Icon: ChartNoAxesCombined },
   { name: 'Cockpit', Icon: WalletCards },
   { name: 'Markets', Icon: CircleDollarSign },
   { name: 'Protocol', Icon: Blocks },
-  { name: 'Speculation', Icon: Telescope },
   { name: 'Contracts', Icon: FileCode2 },
   { name: 'Guide', Icon: BookOpen },
   { name: 'Planner', Icon: Calculator },
@@ -58,7 +55,6 @@ const SUBTITLES: Record<View, string> = {
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
   Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
-  Speculation: 'Where today\u2019s chain state points — forward paths for price, supply, burns, and liquidity.',
   Contracts: 'Contract address registry — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
   Planner: 'Coming soon — prediction plans from current and future numbers.',
@@ -203,7 +199,6 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           </>}
           {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
-          {view === 'Speculation' && <SpeculationView data={data}/>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
       </main>
