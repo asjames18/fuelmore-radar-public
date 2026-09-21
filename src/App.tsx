@@ -57,7 +57,7 @@ const SUBTITLES: Record<View, string> = {
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
   Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
-  Speculation: 'Supply and burn projections from live on-chain numbers — scenarios, not predictions.',
+  Speculation: 'Supply, burn, price, and liquidity scenarios from live on-chain numbers — scenarios, not predictions.',
   Contracts: 'Verified contract addresses — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
   Planner: 'Coming soon — prediction plans from current and future numbers.',

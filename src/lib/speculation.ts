@@ -113,10 +113,10 @@ export type BurnInputs = {
 
 export type BurnPoint = {
   date: string
-  /** Cumulative FUEL burned: observed to date + projected at the current pace. */
-  fuel: number
-  /** Cumulative MORE burned: observed to date + projected at the current pace. */
-  more: number
+  /** Cumulative FUEL burned: observed to date + projected at the current pace. null = pace unknown (gap, not zero). */
+  fuel: number | null
+  /** Cumulative MORE burned: observed to date + projected at the current pace. null = pace unknown (gap, not zero). */
+  more: number | null
 }
 
 export type BurnPace = {
@@ -155,17 +155,159 @@ export function projectBurns(inputs: BurnInputs): { points: BurnPoint[]; pace: B
     fuelPerDay,
     morePerDay,
   }
-  let fuel = Number(formatUnits(fuelBurntNow, 18))
-  let more = Number(formatUnits(moreBurntNow, 18))
+  let fuel: number | null = Number(formatUnits(fuelBurntNow, 18))
+  let more: number | null = Number(formatUnits(moreBurntNow, 18))
   if (!Number.isFinite(fuel) || !Number.isFinite(more)) return null
   const points: BurnPoint[] = []
   for (let i = 1; i <= horizonDays; i++) {
     const date = new Date(start + i * 86400000).toISOString().slice(0, 10)
-    fuel += fuelPerDay ?? 0
-    more += morePerDay ?? 0
+    // A missing native price means the token pace is unknown: emit a gap,
+    // never a flat line that could read as "zero future burns".
+    fuel = fuelPerDay === null ? null : (fuel as number) + fuelPerDay
+    more = morePerDay === null ? null : (more as number) + morePerDay
     points.push({ date, fuel, more })
   }
   return { points, pace }
+}
+
+export type FutureSupplies = {
+  date: string
+  /** Absolute FUEL supply along the scheduled-maturities path. null when unknown. */
+  fuelScheduled: number | null
+  /** Absolute FUEL supply if the trailing claim pace continues. null when unknown. */
+  fuelPaced: number | null
+  /** Absolute MORE supply (current minus projected burns). null when unknown. */
+  more: number | null
+}
+
+/**
+ * Absolute future supplies shared by the price and liquidity scenarios.
+ * FUEL paths anchor at current supply plus cumulative new inflows.
+ * MORE anchors at current supply minus cumulative *new* projected burns:
+ * the day-1 point already subtracts day 1's projected burns, so the series
+ * is "current supply minus projected burns through that date" — consistent
+ * with the FUEL paths, which also include their first day's inflows.
+ * Missing inputs yield null (gaps), never zero.
+ */
+export function projectSupplies(args: {
+  fuelSupply: number | null
+  moreSupply: number | null
+  supply: SupplyPoint[] | null
+  burns: { points: BurnPoint[]; pace: BurnPace } | null
+}): FutureSupplies[] | null {
+  const { fuelSupply, moreSupply, supply, burns } = args
+  const n = Math.max(supply?.length ?? 0, burns?.points.length ?? 0)
+  if (n === 0) return null
+  const burnPace = burns?.pace.morePerDay ?? null
+  const burn0 = burns?.points[0]?.more ?? null
+  // Observed cumulative burns at the start date: the day-1 point minus one day's pace.
+  const burnBaseline = burn0 !== null && burnPace !== null ? burn0 - burnPace : null
+  const out: FutureSupplies[] = []
+  for (let i = 0; i < n; i++) {
+    const s = supply?.[i]
+    const b = burns?.points[i]
+    const date = s?.date ?? b?.date
+    if (!date) break
+    out.push({
+      date,
+      fuelScheduled: s && fuelSupply !== null ? fuelSupply + s.scheduled : null,
+      fuelPaced: s && fuelSupply !== null ? fuelSupply + s.paced : null,
+      more: moreSupply !== null && b?.more != null && burnBaseline !== null
+        ? moreSupply - (b.more - burnBaseline)
+        : null,
+    })
+  }
+  return out
+}
+
+export type PricePoint = {
+  date: string
+  /**
+   * Implied USD price if market cap stayed exactly at its current snapshot
+   * while supply moved: price = marketCapNow / supplyFuture. This is an
+   * arithmetic scenario, not a price prediction — markets do not hold market
+   * cap constant. null = uncomputable (gap, not zero).
+   */
+  fuelScheduled: number | null
+  fuelPaced: number | null
+  more: number | null
+}
+
+/**
+ * Implied-price scenarios from the supply projections. Every input is a live
+ * observable (current market-cap snapshot, projected supplies); the only
+ * assumption is "what if market cap held constant", stated on the chart.
+ */
+export function projectPrices(args: {
+  fuelMarketCapUsd: number | null
+  moreMarketCapUsd: number | null
+  supplies: FutureSupplies[]
+}): PricePoint[] | null {
+  const { fuelMarketCapUsd, moreMarketCapUsd, supplies } = args
+  if (!Array.isArray(supplies) || supplies.length === 0 || supplies.length > 730) return null
+  const fuelMc = fuelMarketCapUsd !== null && Number.isFinite(fuelMarketCapUsd) && fuelMarketCapUsd > 0 ? fuelMarketCapUsd : null
+  const moreMc = moreMarketCapUsd !== null && Number.isFinite(moreMarketCapUsd) && moreMarketCapUsd > 0 ? moreMarketCapUsd : null
+  if (fuelMc === null && moreMc === null) return null
+  const implied = (mc: number | null, supply: number | null) =>
+    mc !== null && supply !== null && Number.isFinite(supply) && supply > 0 ? mc / supply : null
+  return supplies.map(s => {
+    if (typeof s.date !== 'string') return null
+    return {
+      date: s.date,
+      fuelScheduled: implied(fuelMc, s.fuelScheduled),
+      fuelPaced: implied(fuelMc, s.fuelPaced),
+      more: implied(moreMc, s.more),
+    }
+  }).filter((p): p is PricePoint => p !== null)
+}
+
+export type LiquidityPoint = {
+  date: string
+  /**
+   * Pool liquidity USD scenarios. "flat" holds today's observed liquidity
+   * constant (the only baseline the data supports). "scaled" is illustrative:
+   * liquidity depth tracking supply growth at a constant price
+   * (liquidityNow × supplyFuture / supplyNow). Neither is a market forecast.
+   */
+  fuelFlat: number | null
+  fuelScaled: number | null
+  moreFlat: number | null
+  moreScaled: number | null
+}
+
+/**
+ * Liquidity scenarios from current pool snapshots and projected supplies.
+ * The flat line is today's liquidity extended; the scaled line is explicitly
+ * illustrative. Missing inputs yield null (gaps), never zero.
+ */
+export function projectLiquidity(args: {
+  fuelLiquidityUsd: number | null
+  moreLiquidityUsd: number | null
+  fuelSupplyNow: number | null
+  moreSupplyNow: number | null
+  supplies: FutureSupplies[]
+}): LiquidityPoint[] | null {
+  const { fuelLiquidityUsd, moreLiquidityUsd, fuelSupplyNow, moreSupplyNow, supplies } = args
+  if (!Array.isArray(supplies) || supplies.length === 0 || supplies.length > 730) return null
+  const fuelLiq = fuelLiquidityUsd !== null && Number.isFinite(fuelLiquidityUsd) && fuelLiquidityUsd >= 0 ? fuelLiquidityUsd : null
+  const moreLiq = moreLiquidityUsd !== null && Number.isFinite(moreLiquidityUsd) && moreLiquidityUsd >= 0 ? moreLiquidityUsd : null
+  const fuelBase = fuelSupplyNow !== null && Number.isFinite(fuelSupplyNow) && fuelSupplyNow > 0 ? fuelSupplyNow : null
+  const moreBase = moreSupplyNow !== null && Number.isFinite(moreSupplyNow) && moreSupplyNow > 0 ? moreSupplyNow : null
+  if (fuelLiq === null && moreLiq === null) return null
+  const scaled = (liq: number | null, base: number | null, future: number | null) =>
+    liq !== null && base !== null && future !== null && Number.isFinite(future) && future >= 0 ? liq * (future / base) : null
+  const points: LiquidityPoint[] = []
+  for (const s of supplies) {
+    if (typeof s.date !== 'string') return null
+    points.push({
+      date: s.date,
+      fuelFlat: fuelLiq,
+      fuelScaled: scaled(fuelLiq, fuelBase, s.fuelScheduled),
+      moreFlat: moreLiq,
+      moreScaled: scaled(moreLiq, moreBase, s.more),
+    })
+  }
+  return points
 }
 
 /** Whole-token number from a wei bigint for chart math and display. */
@@ -183,4 +325,15 @@ export function formatTokens(value: number | null): string {
   if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`
   if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`
   return value.toFixed(value < 10 && value !== 0 ? 2 : 0)
+}
+
+/** Compact USD formatting for scenario figures (e.g. $1.24M, $0.0042). Never invents a value. */
+export function formatUsd(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—'
+  const abs = Math.abs(value)
+  if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`
+  if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`
+  if (abs >= 1 || value === 0) return `$${value.toFixed(2)}`
+  return `$${value.toFixed(4)}`
 }
