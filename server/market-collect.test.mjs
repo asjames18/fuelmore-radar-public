@@ -109,8 +109,8 @@ function sleepStub() {
 }
 
 describe('source registry', () => {
-  it('orders sources GeckoTerminal → DexPaprika → Dexscreener', () => {
-    assert.deepEqual(SOURCE_ORDER, ['geckoterminal', 'dexpaprika', 'dexscreener'])
+  it('orders sources Dexscreener → GeckoTerminal → DexPaprika', () => {
+    assert.deepEqual(SOURCE_ORDER, ['dexscreener', 'geckoterminal', 'dexpaprika'])
   })
   it('keeps canonical token/pool identities', () => {
     assert.equal(TOKENS.fuel.pairAddress, FUEL_PAIR)
@@ -395,11 +395,39 @@ describe('dexpaprika source behavior', () => {
 })
 
 describe('failover ordering', () => {
-  it('falls back to DexPaprika when GeckoTerminal 429s exhaust retries', async () => {
+  it('falls back to GeckoTerminal when Dexscreener 429s exhaust retries', async () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
     try {
       const { fetch, calls } = stubFetch({
+        [`dexscreener|${FUEL_PAIR}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${FUEL_TOKEN}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${MORE_PAIR}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${MORE_TOKEN}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`geckoterminal|${FUEL_PAIR}`]: [ok(geckoFuel())],
+        [`geckoterminal|${MORE_PAIR}`]: [ok(geckoMore())],
+      })
+      const point = await collectMarketSnapshot(fetch, 1_700_000_000, { sleep })
+      assert.ok(point)
+      assert.equal(point.fuelPrice, 0.005)
+      assert.equal(point.moreLiquidity, 1234.5)
+      assert.equal(calls.filter((u) => u.includes('api.dexscreener.com')).length, 12)
+      assert.equal(calls.filter((u) => u.includes('api.geckoterminal.com')).length, 2)
+      assert.ok(console.logs.some((m) => m.includes('source geckoterminal succeeded')), console.logs.join(' | '))
+      assert.ok(!console.logs.some((m) => m.includes('source dexscreener succeeded')), console.logs.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+  it('falls back to DexPaprika when Dexscreener and GeckoTerminal both fail', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    try {
+      const { fetch, calls } = stubFetch({
+        [`dexscreener|${FUEL_PAIR}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${FUEL_TOKEN}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${MORE_PAIR}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
+        [`dexscreener|${MORE_TOKEN}`]: [ok({}, 429), ok({}, 429), ok({}, 429)],
         'api.geckoterminal.com': [ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429)],
         [`dexpaprika|${FUEL_PAIR}`]: [ok(paprikaFuel())],
         [`dexpaprika|${MORE_PAIR}`]: [ok(paprikaMore())],
@@ -408,44 +436,27 @@ describe('failover ordering', () => {
       assert.ok(point)
       assert.equal(point.fuelPrice, 0.006)
       assert.equal(point.moreLiquidity, 2222.2)
+      assert.equal(calls.filter((u) => u.includes('api.dexscreener.com')).length, 12)
       assert.equal(calls.filter((u) => u.includes('api.geckoterminal.com')).length, 6)
-      assert.equal(calls.filter((u) => u.includes('api.dexpaprika.com')).length, 2)
       assert.ok(console.logs.some((m) => m.includes('source dexpaprika succeeded')), console.logs.join(' | '))
-      assert.ok(!console.logs.some((m) => m.includes('source geckoterminal succeeded')), console.logs.join(' | '))
     } finally {
       console.restore()
     }
   })
-  it('falls back to Dexscreener when GeckoTerminal and DexPaprika both fail', async () => {
-    const console = captureConsole()
-    const { sleep } = sleepStub()
-    try {
-      const { fetch } = stubFetch({
-        'api.geckoterminal.com': [ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429), ok({}, 429)],
-        'api.dexpaprika.com': [boom(), boom(), boom(), boom(), boom(), boom()],
-        [FUEL_PAIR]: [ok(fuelPayload())],
-        [MORE_PAIR]: [ok(morePayload())],
-      })
-      const point = await collectMarketSnapshot(fetch, 1_700_000_000, { sleep })
-      assert.ok(point)
-      assert.equal(point.fuelPrice, 1.23)
-      assert.ok(console.logs.some((m) => m.includes('source dexscreener succeeded')), console.logs.join(' | '))
-    } finally {
-      console.restore()
-    }
-  })
-  it('uses GeckoTerminal values when the primary succeeds (first valid wins)', async () => {
+  it('uses Dexscreener values when the primary succeeds (first valid wins)', async () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
     try {
       const { fetch, calls } = stubFetch({
-        [`geckoterminal|${FUEL_PAIR}`]: [ok(geckoFuel())],
-        [`geckoterminal|${MORE_PAIR}`]: [ok(geckoMore())],
+        [`dexscreener|${FUEL_PAIR}`]: [ok(fuelPayload())],
+        [`dexscreener|${MORE_PAIR}`]: [ok(morePayload())],
+        'api.geckoterminal.com': [ok(geckoFuel()), ok(geckoMore())],
         'api.dexpaprika.com': [ok(paprikaFuel()), ok(paprikaMore())],
       })
       const point = await collectMarketSnapshot(fetch, 1_700_000_000, { sleep })
       assert.ok(point)
-      assert.equal(point.fuelPrice, 0.005)
+      assert.equal(point.fuelPrice, 1.23)
+      assert.equal(calls.filter((u) => u.includes('api.geckoterminal.com')).length, 0)
       assert.equal(calls.filter((u) => u.includes('api.dexpaprika.com')).length, 0)
     } finally {
       console.restore()

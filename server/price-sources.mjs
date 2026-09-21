@@ -1,9 +1,22 @@
 // Price-source adapters for market snapshot collection.
 //
 // The scheduled collector tries sources in ordered failover per pair:
-//   1. GeckoTerminal (free, no key) — primary
-//   2. DexPaprika (free, no key) — fallback
-//   3. Dexscreener (free, no key) — last resort; may recover from its 429 streak
+//   1. Dexscreener (free, no key) — primary. Proven working from Cloudflare
+//      Workers egress; throttles intermittently (observed 429 streak
+//      2026-09-21 ~01:30-02:00 UTC, recovered by ~03:20 UTC).
+//   2. GeckoTerminal (free, no key) — fallback. Returns HTTP 429 from
+//      Cloudflare Workers shared egress (probed 2026-09-21, persistent across
+//      repeated probes); kept in rotation in case its throttling is transient.
+//   3. DexPaprika (free, no key) — last resort. Returns HTTP 402 from Workers
+//      egress: the shared keyless monthly credit quota is exhausted
+//      (probed 2026-09-21). A free DexPaprika API key (dedicated quota) would
+//      make this a reliable primary; until then it fast-fails and costs one
+//      subrequest per pair.
+//
+// Order last changed 2026-09-21: live egress probes from a Cloudflare Worker
+// showed GeckoTerminal 429 and DexPaprika 402 while Dexscreener returned 200,
+// so Dexscreener leads. The earlier GeckoTerminal-first ranking was based on
+// probes from a non-Cloudflare VM and does not hold on Workers egress.
 //
 // Each adapter normalizes to { priceUsd, liquidityUsd } and runs STRICT
 // identity validation: the returned pool must be on Robinhood Chain, at the
@@ -25,7 +38,7 @@ const DEX_TOKEN_API = 'https://api.dexscreener.com/latest/dex/tokens'
 export const EXPECTED_CHAIN_ID = 'robinhood'
 export const EXPECTED_NETWORK_ID = 'robinhood'
 
-export const SOURCE_ORDER = ['geckoterminal', 'dexpaprika', 'dexscreener']
+export const SOURCE_ORDER = ['dexscreener', 'geckoterminal', 'dexpaprika']
 
 const MAX_FETCH_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1_000
