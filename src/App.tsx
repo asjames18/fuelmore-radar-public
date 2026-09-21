@@ -6,11 +6,13 @@ import {
   Calculator,
   ChartNoAxesCombined,
   CircleDollarSign,
+  ExternalLink,
   FileCode2,
   Menu,
   Radar,
   RefreshCw,
   ShieldCheck,
+  Telescope,
   WalletCards,
   X,
 } from 'lucide-react'
@@ -24,6 +26,7 @@ import { ActivityTable } from './components/ActivityTable'
 import { ContractRegistry } from './components/ContractRegistry'
 import { MarketCard } from './components/MarketCard'
 import { MarketChart } from './components/MarketChart'
+import { SpeculationView } from './components/SpeculationView'
 import { OverviewStats } from './components/OverviewStats'
 import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
@@ -36,13 +39,14 @@ import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
 
-type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Contracts' | 'Guide' | 'Planner'
+type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Speculation' | 'Contracts' | 'Guide' | 'Planner'
 
 const NAV: Array<{ name: View; Icon: typeof Activity }> = [
   { name: 'Overview', Icon: ChartNoAxesCombined },
   { name: 'Cockpit', Icon: WalletCards },
   { name: 'Markets', Icon: CircleDollarSign },
   { name: 'Protocol', Icon: Blocks },
+  { name: 'Speculation', Icon: Telescope },
   { name: 'Contracts', Icon: FileCode2 },
   { name: 'Guide', Icon: BookOpen },
   { name: 'Planner', Icon: Calculator },
@@ -53,11 +57,25 @@ const SUBTITLES: Record<View, string> = {
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
   Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
+  Speculation: 'Supply and burn projections from live on-chain numbers — scenarios, not predictions.',
   Contracts: 'Verified contract addresses — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
   Planner: 'Coming soon — prediction plans from current and future numbers.',
 }
 
+const OFFICIAL_LINKS = [
+  { label: 'FUEL site', href: 'https://fuelmoretokens.com/' },
+  { label: 'FUEL app', href: 'https://app.fuelmoretokens.com/' },
+  { label: 'MORE site', href: 'https://www.moretokens.com/' },
+  { label: 'MORE app', href: 'https://app.moretokens.com/' },
+] as const
+
+function OfficialLinks() {
+  return <div className="official-links" aria-label="Official FUEL and MORE links">
+    <span>Official</span>
+    {OFFICIAL_LINKS.map(link => <a key={link.label} href={link.href} target="_blank" rel="noreferrer">{link.label}<ExternalLink size={11} aria-hidden/></a>)}
+  </div>
+}
 function DataSources() {
   return <div className="source-block">
     <span>Data sources</span>
@@ -162,6 +180,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           <div className="read-only"><ShieldCheck size={16}/><span>Read-only</span></div>
         </div>
       </header>
+      <OfficialLinks/>
 
       <main>
         <div className="page-title"><div><span>Robinhood Chain · Chain ID 4663</span><h1>{view}</h1></div><p>{SUBTITLES[view]}</p></div>
@@ -183,6 +202,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           </>}
           {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
+          {view === 'Speculation' && <SpeculationView data={data}/>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
       </main>

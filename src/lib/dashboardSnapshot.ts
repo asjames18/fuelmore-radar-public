@@ -3,7 +3,7 @@ import type { RadarData } from './types'
 export const DASHBOARD_KEY = 'dashboard-snapshot-v1'
 export const DASHBOARD_MAX_AGE = 30 * 60_000
 export const SOURCE_NAMES = ['Dexscreener markets', 'Blockscout contracts', 'FUEL holders', 'MORE holders', 'FUEL transfers', 'MORE transfers', 'Protocol RPC reads']
-const protocolKeys = ['totalSupply','globalRank','activeMinters','totalStaked','activeStakes','amp','eaar','maxTermSeconds','fuelBurnt','moreBurnt','ethUsedFuelBurns','ethUsedMoreBurns','totalDistributed','vaultBalance','vaultSwept','vaultCycle','vaultCycleEnd']
+const protocolKeys = ['totalSupply','moreTotalSupply','globalRank','activeMinters','totalStaked','activeStakes','amp','eaar','maxTermSeconds','fuelBurnt','moreBurnt','ethUsedFuelBurns','ethUsedMoreBurns','totalDistributed','vaultBalance','vaultSwept','vaultCycle','vaultCycleEnd']
 
 export function encodeDashboard(data: RadarData): string {
   return JSON.stringify({ version: 1, chainId: 4663, data }, (_, value) => typeof value === 'bigint' ? value.toString() : value)
@@ -27,9 +27,19 @@ export function decodeDashboard(raw: string, now = Date.now()): RadarData | null
     }
     if (data.activity.some((a: {timestamp: string; hash: string; amount: number}) => !a || typeof a.hash !== 'string' || !time(a.timestamp) || !Number.isFinite(a.amount))) return null
     if (data.protocolObservation && (!/^\d+$/.test(data.protocolObservation.blockNumber) || !/^0x[0-9a-f]{64}$/i.test(data.protocolObservation.blockHash) || !/^\d+$/.test(data.protocolObservation.blockTimestamp))) return null
-    if (Object.keys(data.protocol).length !== protocolKeys.length) return null
+    // moreTotalSupply was added 2026-09-21; snapshots written before then omit
+    // it and must still decode (as null) so the scheduled publisher never
+    // deadlocks on a stale snapshot. Every other key stays required and
+    // unknown keys are still rejected.
+    const optionalKeys = ['moreTotalSupply']
+    for (const key of Object.keys(data.protocol)) if (!protocolKeys.includes(key)) return null
     for (const key of protocolKeys) {
       const value = data.protocol[key]
+      if (value === undefined) {
+        if (!optionalKeys.includes(key)) return null
+        data.protocol[key] = null
+        continue
+      }
       if (value !== null && (typeof value !== 'string' || !/^\d{1,78}$/.test(value))) return null
       data.protocol[key] = value === null ? null : BigInt(value)
     }

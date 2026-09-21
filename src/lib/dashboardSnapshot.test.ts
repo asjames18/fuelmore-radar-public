@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { decodeDashboard, encodeDashboard, mergeDashboard, SOURCE_NAMES } from './dashboardSnapshot'
 import type { RadarData, ProtocolSnapshot } from './types'
 import { unavailableHolders } from './types'
-const keys = ['totalSupply','globalRank','activeMinters','totalStaked','activeStakes','amp','eaar','maxTermSeconds','fuelBurnt','moreBurnt','ethUsedFuelBurns','ethUsedMoreBurns','totalDistributed','vaultBalance','vaultSwept','vaultCycle','vaultCycleEnd']
+const keys = ['totalSupply','moreTotalSupply','globalRank','activeMinters','totalStaked','activeStakes','amp','eaar','maxTermSeconds','fuelBurnt','moreBurnt','ethUsedFuelBurns','ethUsedMoreBurns','totalDistributed','vaultBalance','vaultSwept','vaultCycle','vaultCycleEnd']
 function sample(at = '2026-09-19T00:00:00Z'): RadarData {
   return { sources: SOURCE_NAMES.map(name=>({name,status:'available',checkedAt:at,detail:'source'})), pairs:[], contracts:[], holders:{FUEL:{...unavailableHolders(),totalHolders:0,topHolders:[]},MORE:unavailableHolders()},activity:[],protocol:Object.fromEntries(keys.map(k=>[k,123456789123456789123456789n])) as ProtocolSnapshot,updatedAt:at,partial:false,protocolObservation:{blockNumber:'100',blockHash:'0x'+'a'.repeat(64),blockTimestamp:'1789776000'} }
 }
@@ -41,4 +41,17 @@ it('rejects malformed, wrong-chain, future, or incomplete snapshots',()=>{
 it('never rolls a saved observation back to an earlier sync',()=>{
   const previous=sample('2026-09-19T00:10:00Z')
   expect(mergeDashboard(previous,sample())).toBe(previous)
+})
+it('decodes pre-moreTotalSupply snapshots as null instead of rejecting them',()=>{
+  const wire=JSON.parse(encodeDashboard(sample()))
+  delete wire.data.protocol.moreTotalSupply
+  const decoded=decodeDashboard(JSON.stringify(wire))
+  expect(decoded).not.toBeNull()
+  expect(decoded!.protocol.moreTotalSupply).toBeNull()
+  expect(decoded!.protocol.totalSupply).toBe(123456789123456789123456789n)
+})
+it('still rejects snapshots with unknown protocol keys',()=>{
+  const wire=JSON.parse(encodeDashboard(sample()))
+  wire.data.protocol.somethingNew='1'
+  expect(decodeDashboard(JSON.stringify(wire))).toBeNull()
 })

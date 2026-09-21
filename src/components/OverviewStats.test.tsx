@@ -9,6 +9,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 const E18 = 10n ** 18n
 const protocol = {
   totalSupply: 1_000_000n * E18,
+  moreTotalSupply: 500_000n * E18,
   globalRank: 5n,
   activeMinters: 42n,
   totalStaked: 250_000n * E18,

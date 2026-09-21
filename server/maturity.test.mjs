@@ -27,3 +27,16 @@ test('marks exact maturity as due, and excludes closed positions from future pro
  assert.equal(report.due,1)
  assert.equal(report.days.find(day=>day.date==='2026-09-22').scheduled,0)
 })
+test('publishes a full year of future schedule bins for the supply projection',()=>{
+ const far=mint('1','0xa',start,400)
+ const report=buildMaturity([far],start)
+ // 6 past days + today + 365 future days
+ assert.equal(report.days.length,372)
+ assert.equal(report.days.at(-1).date,'2027-09-15')
+ // a 400-day term matures beyond the published window: counted active, not scheduled
+ assert.equal(report.active.length,1)
+ assert.ok(report.days.every(day=>day.scheduled===0))
+ const near=mint('2','0xb',start,300)
+ const report2=buildMaturity([near],start)
+ assert.equal(report2.days.find(day=>day.date==='2027-07-12').scheduled,1)
+})

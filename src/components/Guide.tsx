@@ -118,6 +118,27 @@ export function Guide() {
       </div>
     </section>
 
+    <section className="panel" aria-labelledby="guide-speculation">
+      <div className="panel-heading"><div>
+        <h2 id="guide-speculation">Speculation — what today's pace implies</h2>
+        <p>Supply and burn scenarios from live numbers</p>
+      </div></div>
+      <div className="guide-body">
+        <p>
+          Speculation extends numbers you can verify right now: current supply
+          from <code>totalSupply()</code>, burns to date from the burn
+          controllers, the known mint-maturity schedule, the trailing mint and
+          claim pace, the on-chain mint fee, and the verified 25% / 30% fee
+          split. Every assumption is listed on the page.
+        </p>
+        <p>
+          These are scenarios — "if today's on-chain pace continued" — not
+          predictions, not price calls, and not advice. The individual Planner
+          stays on the drawing board until its math can be trusted.
+        </p>
+      </div>
+    </section>
+
     <section className="panel" aria-labelledby="guide-planner">
       <div className="panel-heading"><div>
         <h2 id="guide-planner">Planner — coming soon</h2>

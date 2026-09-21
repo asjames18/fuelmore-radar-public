@@ -1,4 +1,9 @@
 const DAY=86400
+// The maturity schedule is the deterministic backbone of the Speculation view:
+// past days give context for the timeline, and a full year of future bins lets
+// the supply projection chart the entire known unlock schedule. Closed positions
+// stay excluded from future bins; historical bins keep their counts.
+const PAST_DAYS=6, FUTURE_DAYS=365
 export function buildMaturity(records, throughTimestamp) {
   const active=new Map(), lifecycles=[], seen=new Set()
   const ordered=[...records].sort((a,b)=>a.blockNumber-b.blockNumber || a.logIndex-b.logIndex)
@@ -21,7 +26,7 @@ export function buildMaturity(records, throughTimestamp) {
   }
   const today=Math.floor(throughTimestamp/DAY)*DAY
   const bins=new Map()
-  for(let at=today-6*DAY;at<=today+30*DAY;at+=DAY) {
+  for(let at=today-PAST_DAYS*DAY;at<=today+FUTURE_DAYS*DAY;at+=DAY) {
     const date=new Date(at*1000).toISOString().slice(0,10)
     bins.set(date,{date,scheduled:0})
   }

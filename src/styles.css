@@ -85,6 +85,18 @@ body::before {
 .network:has(i.partial) b, .network:has(i.stale) b { color: var(--amber); }
 .network:has(i.error) b { color: var(--red); }
 .top-actions { margin-left: auto; display: flex; align-items: center; gap: 9px; }
+/* Slim official-project link strip directly under the topbar, visible on every view. */
+.official-links { display: flex; align-items: center; gap: 14px; padding: 7px 22px; border-bottom: 1px solid var(--line); background: rgba(4, 10, 6, .7); font: 11px var(--mono); }
+.official-links > span { color: var(--faint); text-transform: uppercase; letter-spacing: .12em; font-size: 9px; }
+.official-links a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); text-decoration: none; }
+.official-links a:hover { color: var(--green); }
+/* Speculation view: assumptions list and secondary stat lines. */
+.spec-assumptions { margin: 6px 22px 20px; padding: 0; list-style: none; display: grid; gap: 10px; }
+.spec-assumptions li { font-size: 12px; line-height: 1.6; color: #a7bbb0; border-left: 2px solid #20412a; padding-left: 12px; }
+.spec-assumptions b { color: var(--text); font-weight: 600; }
+.spec-assumptions code { font-family: var(--mono); font-size: 11px; color: #9bb2a2; }
+.spec-alt { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.spec-alt small { font-size: 10px; }
 .updated { display: grid; text-align: right; font: 10px var(--mono); color: var(--faint); }
 .updated strong { color: var(--muted); font-weight: 400; }
 .refresh, .read-only {

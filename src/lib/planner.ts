@@ -1,4 +1,4 @@
-import { createPublicClient, http, parseAbi, parseUnits } from 'viem'
+import { createPublicClient, http, parseAbi, parseUnits, formatUnits } from 'viem'
 import { CONTRACTS, RPC_URL, robinhood } from './contracts'
 
 const client = createPublicClient({ chain: robinhood, transport: http(RPC_URL, { timeout: 12_000, retryCount: 2, retryDelay: 500 }) })
@@ -35,6 +35,21 @@ export function plannedDate(timestamp: number, days: string): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 const safe = async <T>(promise: Promise<T>): Promise<T | null> => { try { return await promise } catch { return null } }
+/**
+ * The current per-mint fee in ETH, read live from the FUEL token contract at
+ * the current gas price. Used by the Speculation view to convert the trailing
+ * mint pace into daily ETH flowing to the burners. Returns nulls (never zero)
+ * when any read fails.
+ */
+export async function fetchMintFee(): Promise<{ mintFeeEth: number | null; gasPrice: bigint | null }> {
+  if (await client.getChainId() !== robinhood.id) throw Error('Unexpected RPC network; fee withheld.')
+  const gasPrice = await safe(client.getGasPrice())
+  if (gasPrice === null) return { mintFeeEth: null, gasPrice: null }
+  const fee = await safe(client.readContract({ address: CONTRACTS[0].address, abi: tokenAbi, functionName: 'mintFee', args: [gasPrice] }))
+  if (fee === null || fee < 0n) return { mintFeeEth: null, gasPrice }
+  const eth = Number(formatUnits(fee, 18))
+  return { mintFeeEth: Number.isFinite(eth) && eth > 0 ? eth : null, gasPrice }
+}
 export async function fetchPlannerQuote(count: number): Promise<PlannerQuote> {
   parseBatchSize(String(count))
   if (await client.getChainId() !== robinhood.id) throw Error('Unexpected RPC network; quote withheld.')

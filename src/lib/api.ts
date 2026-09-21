@@ -203,6 +203,7 @@ async function fetchProtocol(client: ReturnType<typeof makeClient>): Promise<{ v
   if (block.number === null || !block.hash) throw new Error('Confirmed block unavailable')
   const blockNumber = block.number
   const fuel = CONTRACTS[0].address as Address
+  const more = CONTRACTS[1].address as Address
   const distributor = CONTRACTS[3].address as Address
   const vault = CONTRACTS[4].address as Address
   const fuelBurner = CONTRACTS[5].address as Address
@@ -211,11 +212,13 @@ async function fetchProtocol(client: ReturnType<typeof makeClient>): Promise<{ v
     safeRead(client.readContract({ address, abi, functionName, blockNumber } as never) as Promise<T>)
 
   const [
-    totalSupply, globalRank, activeMinters, totalStaked, activeStakes, amp, eaar,
+    totalSupply, moreTotalSupply, globalRank, activeMinters, totalStaked, activeStakes, amp, eaar,
     maxTermSeconds, fuelBurnt, moreBurnt, ethUsedFuelBurns, ethUsedMoreBurns,
     totalDistributed, vaultBalance, vaultSwept, vaultCycle, vaultCycleEnd,
   ] = await Promise.all([
     read<bigint>(fuel, fuelAbi, 'totalSupply'),
+    // MORE is an ERC-20 proxy; totalSupply reads through to the implementation.
+    read<bigint>(more, fuelAbi, 'totalSupply'),
     read<bigint>(fuel, fuelAbi, 'globalRank'),
     read<bigint>(fuel, fuelAbi, 'activeMinters'),
     read<bigint>(fuel, fuelAbi, 'totalTokenStaked'),
@@ -238,7 +241,7 @@ async function fetchProtocol(client: ReturnType<typeof makeClient>): Promise<{ v
   }
 
   return { observation: { blockNumber: blockNumber.toString(), blockHash: block.hash, blockTimestamp: block.timestamp.toString() }, values: {
-    totalSupply, globalRank, activeMinters, totalStaked, activeStakes, amp, eaar,
+    totalSupply, moreTotalSupply, globalRank, activeMinters, totalStaked, activeStakes, amp, eaar,
     maxTermSeconds, fuelBurnt, moreBurnt, ethUsedFuelBurns, ethUsedMoreBurns,
     totalDistributed, vaultBalance, vaultSwept, vaultCycle, vaultCycleEnd,
   } }
@@ -283,7 +286,7 @@ export async function fetchRadarData(rpcUrl = RPC_URL, options: { blockscoutApiK
   ].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)).slice(0, 10)
 
   const emptyProtocol: ProtocolSnapshot = {
-    totalSupply: null, globalRank: null, activeMinters: null, totalStaked: null,
+    totalSupply: null, moreTotalSupply: null, globalRank: null, activeMinters: null, totalStaked: null,
     activeStakes: null, amp: null, eaar: null, maxTermSeconds: null,
     fuelBurnt: null, moreBurnt: null, ethUsedFuelBurns: null, ethUsedMoreBurns: null,
     totalDistributed: null, vaultBalance: null, vaultSwept: null, vaultCycle: null,
