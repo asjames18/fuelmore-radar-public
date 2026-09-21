@@ -4,6 +4,8 @@ const DAY=86400
 // the supply projection chart the entire known unlock schedule. Closed positions
 // stay excluded from future bins; historical bins keep their counts.
 const PAST_DAYS=6, FUTURE_DAYS=365
+// Daily bin count the collector writes; validators must accept exactly this shape.
+export const MATURITY_DAY_COUNT=PAST_DAYS+1+FUTURE_DAYS
 export function buildMaturity(records, throughTimestamp) {
   const active=new Map(), lifecycles=[], seen=new Set()
   const ordered=[...records].sort((a,b)=>a.blockNumber-b.blockNumber || a.logIndex-b.logIndex)

@@ -2,6 +2,7 @@
  * The Node publisher owns collection, reorg recovery and maturity validation.
  * KV is an optional copy of a published report, not an independently advanced index.
  */
+import { MATURITY_DAY_COUNT } from './maturity.mjs'
 export const TOKEN = '0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'
 export const REPORT_KEY = 'fuel-activity-report-v1'
 export const STALE_AFTER_SECONDS = 3_600
@@ -31,7 +32,7 @@ export function isUsableReport(report, maxAgeSeconds = 14 * DAY) {
   if (maturity.status === 'ready') {
     if (!uint(maturity.activeCount) || !uint(maturity.due) || maturity.due > maturity.activeCount || !Array.isArray(maturity.days)) return false
     if (maturity.firstMaturityTs !== null && maturity.firstMaturityTs !== undefined && !uint(maturity.firstMaturityTs)) return false
-    if (maturity.days.length !== 37 || !uint(maturity.samplesChecked)) return false
+    if (maturity.days.length !== MATURITY_DAY_COUNT || !uint(maturity.samplesChecked)) return false
     for (const [i, day] of maturity.days.entries()) {
       if (!day || day.date !== new Date((from + i * DAY) * 1000).toISOString().slice(0,10) || !uint(day.scheduled)) return false
     }
