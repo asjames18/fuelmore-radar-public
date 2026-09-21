@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => ({
     },
   }],
   build: { outDir: mode === 'public' ? 'dist-public' : 'dist' },
+  // Export candidates land in gitignored public-export/ between releases;
+  // never let their copied tests pollute the suite.
+  test: { exclude: ['**/node_modules/**', '**/dist/**', '**/dist-public/**', 'public-export/**', '**/cypress/**', '**/.{idea,git,cache,output,temp}/**', '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*'] },
   server: {
     port: 4173,
     strictPort: true,

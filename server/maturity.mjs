@@ -35,5 +35,10 @@ export function buildMaturity(records, throughTimestamp) {
     const day=bins.get(new Date(position.maturityTs*1000).toISOString().slice(0,10))
     if(day) day.scheduled++
   }
-  return {days:[...bins.values()],active:[...active.values()],due:[...active.values()].filter(position=>position.maturityTs<=throughTimestamp).length}
+  const activePositions=[...active.values()]
+  // Exact earliest maturity across active positions. The countdown targets this
+  // timestamp instead of 00:00 UTC on the earliest maturity date, so visitors
+  // see the real moment the first rewards unlock. null when no positions active.
+  const firstMaturityTs=activePositions.length===0?null:Math.min(...activePositions.map(position=>position.maturityTs))
+  return {days:[...bins.values()],active:activePositions,due:activePositions.filter(position=>position.maturityTs<=throughTimestamp).length,firstMaturityTs}
 }

@@ -655,3 +655,16 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .guide-body p { margin: 0; font-size: 13px; line-height: 1.65; color: #c4d2c9; }
 .guide-body strong { color: var(--text); }
 .guide-body em { color: var(--amber); font-style: normal; }
+
+/* Speculation: inline retry link inside status notes */
+.linklike { background: none; border: none; padding: 0; cursor: pointer; font: inherit; color: var(--green); text-decoration: underline; }
+.linklike:hover { color: var(--text); }
+
+/* First-claim countdown banner (Overview hub) */
+.claim-countdown { margin: 14px 18px 4px; padding: 14px 18px; border: 1px solid var(--line-strong); border-radius: 8px; background: linear-gradient(180deg, rgba(20, 60, 32, .55), rgba(5, 11, 7, .9)); }
+.claim-countdown-label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.claim-countdown-digits { font: 700 30px/1.2 var(--mono); color: var(--green); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.claim-countdown-sub { margin-top: 6px; font-size: 12px; color: #a7bbb0; }
+.claim-countdown.live .claim-countdown-label { color: var(--green); }
+.claim-countdown.live { border-color: var(--green); }
+@media (max-width: 560px) { .claim-countdown-digits { font-size: 24px; } }

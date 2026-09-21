@@ -35,8 +35,10 @@ export function Guide() {
           Token cards show live price, liquidity, and 24-hour change for FUEL and MORE.
           Daily pulse tracks minting and claiming wallets today and over the last
           seven days, and upcoming maturities lists MORE vesting in the next few
-          days. When a value is unavailable we show it as missing instead of
-          guessing.
+          days. A countdown at the top of the panel ticks down to the first date
+          any FUEL rewards can unlock — once matured positions are waiting it
+          flips to a "claims are live" state instead. When a value is unavailable
+          we show it as missing instead of guessing.
         </p>
         <p>
           Recent activity lists the latest on-chain transfers for both tokens, each
@@ -120,20 +122,30 @@ export function Guide() {
 
     <section className="panel" aria-labelledby="guide-speculation">
       <div className="panel-heading"><div>
-        <h2 id="guide-speculation">Speculation — coming soon</h2>
-        <p>Forward-looking price, supply, burn, and liquidity projections</p>
+        <h2 id="guide-speculation">Speculation — the forward view</h2>
+        <p>Where today's chain state points, not a forecast</p>
       </div></div>
       <div className="guide-body">
         <p>
-          Speculation is a future build: projections of future price, supply,
-          burns, and liquidity built with predictive math from what is
-          currently happening on-chain — current state projected into future
-          state, updated as new numbers come in.
+          Speculation takes what is currently happening on-chain — mint pace,
+          claim pace, burn pace, supplies, market caps, pool liquidity — and
+          projects it forward 90, 180, or 365 days. The headline path is the
+          <strong> net-supply trajectory</strong>: today's FUEL supply plus
+          (rewards claimed per day minus FUEL burned per day), extended flat.
+          A second line reruns the same math on the most recent 7 days, so the
+          gap between the lines shows whether activity is accelerating or
+          cooling. A dotted overlay adds potential claims from the deterministic
+          maturity schedule. A supply cannot go negative: if the pace would
+          drive the trajectory to zero, the line stops there and says so —
+          past that point the flat-pace assumption breaks.
         </p>
         <p>
-          That math isn't figured out yet, so the page stays on the drawing
-          board until the projections are real and trustworthy. It will appear
-          here when it is.
+          <em>Implied price</em> is pure arithmetic — today's market-cap
+          snapshot divided by the projected supply. It shows the direction and
+          scale the supply pressure implies, not where price is going. Every
+          section computes from its own live inputs, so one missing feed
+          degrades one section instead of blanking the page, and every input
+          carries an "as of" time on the method panel at the bottom.
         </p>
       </div>
     </section>

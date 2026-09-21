@@ -156,6 +156,7 @@ async function verifyMaturity(client, records, throughBlock, throughTimestamp, g
       days: reconstructed.days,
       activeCount: reconstructed.active.length,
       due: reconstructed.due,
+      firstMaturityTs: reconstructed.firstMaturityTs,
       samplesChecked: sampleIndexes.length,
       historyFrom: genesisTs,
     }

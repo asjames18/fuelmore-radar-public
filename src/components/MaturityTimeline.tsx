@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-export type MaturityReport = { status: 'ready'; days: Array<{date: string; scheduled: number}>; activeCount: number; due: number; samplesChecked: number; historyFrom: number | null } | { status: 'unavailable'; error: string }
+export type MaturityReport = { status: 'ready'; days: Array<{date: string; scheduled: number}>; activeCount: number; due: number; firstMaturityTs?: number | null; samplesChecked: number; historyFrom: number | null } | { status: 'unavailable'; error: string }
 type ActualDay = { date: string; mints: number; claims: number }
 export function MaturityTimeline({ maturity, actual, throughTimestamp }: { maturity?: MaturityReport; actual: ActualDay[]; throughTimestamp: number }) {
   const [horizon, setHorizon] = useState(7)

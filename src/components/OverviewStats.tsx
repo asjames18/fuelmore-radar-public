@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { parseUnits } from 'viem'
 import { formatClaimedFuel, formatEth, formatToken } from '../lib/format'
+import { FirstClaimCountdown } from './FirstClaimCountdown'
 import type { ProtocolSnapshot } from '../lib/types'
 import type { MaturityReport } from './MaturityTimeline'
 
@@ -100,6 +101,7 @@ export function OverviewStats({ protocol, onSeeProtocol, onSeeMarkets }: {
     <div className="panel-heading">
       <div><h2 id="daily-pulse-title">Daily pulse</h2><p>On-chain numbers at a glance · UTC</p></div>
     </div>
+    <FirstClaimCountdown maturity={report?.maturity}/>
     {!report && !unavailable && <p className="pulse-note" role="status">Loading daily stats…</p>}
     {unavailable && <p className="pulse-note" role="status">Daily stats unavailable right now.</p>}
     {report && today && <>

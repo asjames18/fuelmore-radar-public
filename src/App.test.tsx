@@ -53,11 +53,46 @@ it('overview shows number panels instead of the comparison chart, which lives in
  expect(screen.getByText('FUEL / MORE comparison')).toBeTruthy()
  radarState.data = null
 })
-it('speculation view renders a coming-soon placeholder', () => {
+it('speculation view renders forward projections from live inputs, degrading gracefully', async () => {
+ const report = {
+  maturity: { status: 'ready', days: [{ date: '2026-09-22', scheduled: 4092 }, { date: '2026-09-23', scheduled: 901 }] },
+  days: [
+   { date: '2026-09-18', mints: 870, claims: 4, claimedFuel: '400' },
+   { date: '2026-09-19', mints: 900, claims: 6, claimedFuel: '600' },
+   { date: '2026-09-20', mints: 950, claims: 5, claimedFuel: '500' },
+   { date: '2026-09-21', mints: 999, claims: 999, claimedFuel: '999999' },
+  ],
+  throughTimestamp: Math.floor(Date.now() / 1000),
+  throughBlock: '0xabc',
+  generatedAt: new Date().toISOString(),
+ }
+ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ report }) }))
+ radarState.data = {
+  pairs: [
+   { symbol: 'FUEL', name: 'FUEL', tokenAddress: '0x' + '11'.repeat(20), pairAddress: '0x' + '22'.repeat(20), dexId: 'testdex', version: 'v3', priceUsd: 0.004539, priceNative: 1.665e-06, marketCap: 4285, liquidityUsd: 5549.48, volume24h: 385.47 },
+   { symbol: 'MORE', name: 'MORE', tokenAddress: '0x' + '33'.repeat(20), pairAddress: '0x' + '44'.repeat(20), dexId: 'testdex', version: 'v3', priceUsd: 3.823e-05, priceNative: 1.405e-08, marketCap: 36331, liquidityUsd: 3947.62, volume24h: 55.23 },
+  ],
+  holders: {}, activity: [], sources: [], contracts: [],
+  protocol: {
+   totalSupply: 943628222586147348158940n, moreTotalSupply: null,
+   fuelBurnt: 25994772660845759936641n, moreBurnt: 4896317975811800492964756n,
+  },
+  updatedAt: Date.now(), partial: false,
+ } as unknown as RadarData
  render(<App/>)
  fireEvent.click(screen.getAllByRole('button',{name:'Speculation'})[0])
- expect(screen.getByLabelText('Speculation coming soon')).toBeTruthy()
- expect(screen.getByText('Coming soon')).toBeTruthy()
- expect(screen.queryByText('What these numbers assume')).toBeNull()
+ // The forward view renders even though the mint-fee read is mocked to null:
+ // the supply trajectory degrades to claims-only instead of blanking the page.
+ expect(await screen.findByText(/where today's chain state points/)).toBeTruthy()
+ expect(await screen.findByText('Future supply · FUEL')).toBeTruthy()
+ // The supply trajectory degrades to claims-only: recharts splits legend
+ // labels across SVG nodes, so assert the plain-text degradation note.
+ expect(screen.getByText(/Burns are excluded until the mint-fee read succeeds/)).toBeTruthy()
+ expect(screen.getByText('The math behind the page')).toBeTruthy()
+ // The burn section honestly reports its missing input with a retry affordance.
+ expect(screen.getByText(/Burn projection unavailable/)).toBeTruthy()
+ // MORE supply stays a labeled gap while the supply read is null — never zero.
+ expect(screen.getByText(/MORE supply projection unavailable/)).toBeTruthy()
+ vi.unstubAllGlobals()
  radarState.data = null
 })

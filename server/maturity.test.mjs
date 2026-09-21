@@ -27,6 +27,17 @@ test('marks exact maturity as due, and excludes closed positions from future pro
  assert.equal(report.due,1)
  assert.equal(report.days.find(day=>day.date==='2026-09-22').scheduled,0)
 })
+test('publishes the exact earliest maturity timestamp for the countdown',()=>{
+ const earlier=mint('1','0xa',start-86400*6,7)
+ const later=mint('2','0xb',start,7)
+ const report=buildMaturity([earlier,later],start)
+ assert.equal(report.firstMaturityTs,earlier.timestamp+7*86400)
+})
+test('firstMaturityTs is null with no active positions',()=>{
+ const report=buildMaturity([],start)
+ assert.equal(report.firstMaturityTs,null)
+ assert.equal(report.active.length,0)
+})
 test('publishes a full year of future schedule bins for the supply projection',()=>{
  const far=mint('1','0xa',start,400)
  const report=buildMaturity([far],start)

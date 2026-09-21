@@ -33,11 +33,16 @@ export type TrailingStats = {
   avgClaimSize: number | null
 }
 
-export function trailingStats(days: ActivityDay[]): TrailingStats | null {
+export function trailingStats(days: ActivityDay[], windowDays?: number): TrailingStats | null {
   const complete = days.slice(0, -1)
-  if (complete.length === 0) return null
+  // Optional trailing window: compare the recent pace (e.g. last 7 complete
+  // days) against the full history to see whether activity is accelerating or
+  // cooling. Undefined keeps the long-standing full-window behavior.
+  const windowed = windowDays === undefined ? complete
+    : !Number.isInteger(windowDays) || windowDays < 1 ? [] : complete.slice(-windowDays)
+  if (windowed.length === 0) return null
   let mints = 0, claims = 0, claimed = 0
-  for (const day of complete) {
+  for (const day of windowed) {
     if (!Number.isFinite(day.mints) || !Number.isFinite(day.claims) || day.mints < 0 || day.claims < 0) return null
     const amount = Number(day.claimedFuel)
     if (!Number.isFinite(amount) || amount < 0) return null
@@ -45,7 +50,7 @@ export function trailingStats(days: ActivityDay[]): TrailingStats | null {
     claims += day.claims
     claimed += amount
   }
-  const n = complete.length
+  const n = windowed.length
   return {
     daysUsed: n,
     avgMintsPerDay: mints / n,
@@ -53,6 +58,66 @@ export function trailingStats(days: ActivityDay[]): TrailingStats | null {
     avgClaimedPerDay: claimed / n,
     avgClaimSize: claims > 0 ? claimed / claims : null,
   }
+}
+
+export type NetSupplyPoint = { date: string; supply: number | null }
+
+/**
+ * A net-supply trajectory plus the date the flat pace would deplete the supply.
+ * depletedAt is the first date the trajectory reaches zero or below; null when
+ * the pace never depletes the supply within the horizon.
+ */
+export type NetSupplyResult = {
+  points: NetSupplyPoint[]
+  depletedAt: string | null
+}
+
+/**
+ * FUEL net-supply trajectory: today's supply plus cumulative net flow at the
+ * current pace — claimed rewards flowing in minus burns flowing out. A null
+ * burn pace means burns are unknown, so they are excluded (treated as zero)
+ * and the caller must label the line accordingly; a null claim pace means no
+ * trajectory at all.
+ *
+ * A token supply cannot go negative: once the flat pace would drive the
+ * trajectory to zero or below, the series gaps (null) from that date onward —
+ * past the depletion point the flat-pace assumption breaks and there is
+ * nothing honest to draw. The first such date is returned as depletedAt so
+ * callers can say so in plain language.
+ *
+ * This is the page's primary forward view: where the supply is headed if what
+ * is happening right now keeps happening. Not a forecast of behavior.
+ */
+export function projectNetSupply(args: {
+  fuelSupply: number | null
+  claimedPerDay: number | null
+  burnPerDay: number | null
+  startDate: string
+  horizonDays?: number
+}): NetSupplyResult | null {
+  const { fuelSupply, claimedPerDay, burnPerDay, startDate, horizonDays = 365 } = args
+  if (fuelSupply === null || claimedPerDay === null) return null
+  if (![fuelSupply, claimedPerDay].every(v => Number.isFinite(v as number) && (v as number) >= 0)) return null
+  const burn = burnPerDay === null ? 0 : burnPerDay
+  if (!Number.isFinite(burn) || burn < 0) return null
+  const start = Date.parse(`${startDate}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > 730) return null
+  const netPerDay = (claimedPerDay as number) - burn
+  const points: NetSupplyPoint[] = []
+  let depletedAt: string | null = null
+  for (let i = 1; i <= horizonDays; i++) {
+    const date = new Date(start + i * 86400000).toISOString().slice(0, 10)
+    const supply = (fuelSupply as number) + netPerDay * i
+    if (depletedAt !== null || supply <= 0) {
+      // Depleted: gap from here on. Supply cannot go negative, and past the
+      // zero-crossing the flat pace has nothing honest left to draw.
+      if (depletedAt === null) depletedAt = date
+      points.push({ date, supply: null })
+    } else {
+      points.push({ date, supply })
+    }
+  }
+  return { points, depletedAt }
 }
 
 export type SupplyPoint = {
@@ -176,6 +241,10 @@ export type FutureSupplies = {
   fuelScheduled: number | null
   /** Absolute FUEL supply if the trailing claim pace continues. null when unknown. */
   fuelPaced: number | null
+  /** Absolute FUEL supply on the net-flow trajectory (claims in, burns out). null when unknown. */
+  fuelNet: number | null
+  /** Same net-flow trajectory at the recent-window pace (the pace band's other edge). null when unknown. */
+  fuelNetRecent: number | null
   /** Absolute MORE supply (current minus projected burns). null when unknown. */
   more: number | null
 }
@@ -194,9 +263,15 @@ export function projectSupplies(args: {
   moreSupply: number | null
   supply: SupplyPoint[] | null
   burns: { points: BurnPoint[]; pace: BurnPace } | null
+  /** Net-flow FUEL trajectory at the full-window pace (primary forward path). */
+  net?: NetSupplyResult | null
+  /** Net-flow FUEL trajectory at the recent-window pace (pace-band edge). */
+  netRecent?: NetSupplyResult | null
 }): FutureSupplies[] | null {
-  const { fuelSupply, moreSupply, supply, burns } = args
-  const n = Math.max(supply?.length ?? 0, burns?.points.length ?? 0)
+  const { fuelSupply, moreSupply, supply, burns, net = null, netRecent = null } = args
+  const netPts = net?.points ?? null
+  const netRecentPts = netRecent?.points ?? null
+  const n = Math.max(supply?.length ?? 0, burns?.points.length ?? 0, netPts?.length ?? 0, netRecentPts?.length ?? 0)
   if (n === 0) return null
   const burnPace = burns?.pace.morePerDay ?? null
   const burn0 = burns?.points[0]?.more ?? null
@@ -206,12 +281,14 @@ export function projectSupplies(args: {
   for (let i = 0; i < n; i++) {
     const s = supply?.[i]
     const b = burns?.points[i]
-    const date = s?.date ?? b?.date
+    const date = s?.date ?? b?.date ?? netPts?.[i]?.date ?? netRecentPts?.[i]?.date
     if (!date) break
     out.push({
       date,
       fuelScheduled: s && fuelSupply !== null ? fuelSupply + s.scheduled : null,
       fuelPaced: s && fuelSupply !== null ? fuelSupply + s.paced : null,
+      fuelNet: netPts?.[i]?.date === date ? netPts[i].supply : null,
+      fuelNetRecent: netRecentPts?.[i]?.date === date ? netRecentPts[i].supply : null,
       more: moreSupply !== null && b?.more != null && burnBaseline !== null
         ? moreSupply - (b.more - burnBaseline)
         : null,
@@ -230,6 +307,10 @@ export type PricePoint = {
    */
   fuelScheduled: number | null
   fuelPaced: number | null
+  /** Implied price on the net-flow trajectory (the page's primary forward path). */
+  fuelNet: number | null
+  /** Implied price on the net-flow trajectory at the recent-window pace. */
+  fuelNetRecent: number | null
   more: number | null
 }
 
@@ -256,6 +337,8 @@ export function projectPrices(args: {
       date: s.date,
       fuelScheduled: implied(fuelMc, s.fuelScheduled),
       fuelPaced: implied(fuelMc, s.fuelPaced),
+      fuelNet: implied(fuelMc, s.fuelNet),
+      fuelNetRecent: implied(fuelMc, s.fuelNetRecent),
       more: implied(moreMc, s.more),
     }
   }).filter((p): p is PricePoint => p !== null)
@@ -271,6 +354,8 @@ export type LiquidityPoint = {
    */
   fuelFlat: number | null
   fuelScaled: number | null
+  /** Supply-scaled line on the net-flow trajectory (the page's primary forward path). */
+  fuelNetScaled: number | null
   moreFlat: number | null
   moreScaled: number | null
 }
@@ -303,6 +388,7 @@ export function projectLiquidity(args: {
       date: s.date,
       fuelFlat: fuelLiq,
       fuelScaled: scaled(fuelLiq, fuelBase, s.fuelScheduled),
+      fuelNetScaled: scaled(fuelLiq, fuelBase, s.fuelNet),
       moreFlat: moreLiq,
       moreScaled: scaled(moreLiq, moreBase, s.more),
     })
@@ -335,5 +421,7 @@ export function formatUsd(value: number | null): string {
   if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`
   if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`
   if (abs >= 1 || value === 0) return `$${value.toFixed(2)}`
-  return `$${value.toFixed(4)}`
+  if (abs >= 0.01) return `$${value.toFixed(4)}`
+  // Tiny prices (e.g. $0.00003823): two significant digits, never "$0.0000".
+  return `$${value.toPrecision(2)}`
 }

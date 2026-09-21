@@ -30,6 +30,7 @@ export function isUsableReport(report, maxAgeSeconds = 14 * DAY) {
   if (!maturity || !['ready', 'unavailable'].includes(maturity.status)) return false
   if (maturity.status === 'ready') {
     if (!uint(maturity.activeCount) || !uint(maturity.due) || maturity.due > maturity.activeCount || !Array.isArray(maturity.days)) return false
+    if (maturity.firstMaturityTs !== null && maturity.firstMaturityTs !== undefined && !uint(maturity.firstMaturityTs)) return false
     if (maturity.days.length !== 37 || !uint(maturity.samplesChecked)) return false
     for (const [i, day] of maturity.days.entries()) {
       if (!day || day.date !== new Date((from + i * DAY) * 1000).toISOString().slice(0,10) || !uint(day.scheduled)) return false
