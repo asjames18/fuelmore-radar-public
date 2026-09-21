@@ -14,7 +14,6 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
-import { DonateChip, DONATE_NETWORK_NOTE } from './components/DonateChip'
 import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
 import { PublicCockpit } from './components/PublicCockpit'
@@ -31,6 +30,7 @@ import { DEXSCREENER, PAIRS } from './lib/contracts'
 import { formatUsd, shortAddress, timeAgo } from './lib/format'
 import type { RadarData } from './lib/types'
 import { useRadarData } from './useRadarData'
+import { track } from './lib/analytics'
 import './styles.css'
 
 type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Positions' | 'Planner' | 'Contracts'
@@ -96,6 +96,7 @@ export type PersonalFeatures = {
   Planner: ComponentType
   Diagnostics: ComponentType<{ data: RadarData }>
   Risk: ComponentType<{ data: RadarData }>
+  Analytics: ComponentType
   defaultWallet: string
 }
 function App({ personal }: { personal?: PersonalFeatures }) {
@@ -103,12 +104,19 @@ function App({ personal }: { personal?: PersonalFeatures }) {
   const Planner = personal?.Planner
   const Diagnostics = personal?.Diagnostics
   const Risk = personal?.Risk
+  const Analytics = personal?.Analytics
   const { data, history, status, error, refresh, refreshing } = useRadarData()
   const [view, setView] = useState<View>('Overview')
   const [menuOpen, setMenuOpen] = useState(false)
 
+  const selectView = (next: View) => {
+    setView(next)
+    track('view_selected')
+    if (next === 'Cockpit') track('cockpit_open')
+  }
+
   return <div className="app-shell">
-    <Sidebar view={view} setView={setView} open={menuOpen} close={() => setMenuOpen(false)}/>
+    <Sidebar view={view} setView={selectView} open={menuOpen} close={() => setMenuOpen(false)}/>
     <div className="workspace">
       <header className="topbar">
         <button className="menu-button" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20}/></button>
@@ -116,7 +124,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         {personal && <div className="network"><i className={status}/><span>Robinhood Chain</span><b>{status === 'loading' ? 'SYNCING' : status === 'live' ? 'CONNECTED' : status.toUpperCase()}</b></div>}
         <div className="top-actions">
           {personal ? <><div className="updated"><span>Saved sync attempt</span><strong>{data ? timeAgo(data.updatedAt) : '—'}</strong></div>
-          <button className="refresh" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
+          <button className="refresh" onClick={() => { track('refresh_clicked'); void refresh() }} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
             <span title={data ? new Date(data.updatedAt).toISOString() : undefined}>Last sync: {data ? timeAgo(data.updatedAt) : 'waiting for data'}</span>
             <small>Updates every 15 minutes</small>
           </div>}
@@ -140,6 +148,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
             <div className={Risk ? "primary-grid" : "public-chart"}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
             <ProtocolFlow protocol={data.protocol}/>
             <ProtocolStats protocol={data.protocol}/>
+            {Analytics && <Analytics/>}
             <HolderBoard holders={data.holders}/>
             <div className="bottom-grid"><ContractRegistry contracts={data.contracts}/><ActivityTable activity={data.activity} sources={data.sources}/></div>
           </>}
@@ -149,14 +158,10 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         </>}
       </main>
 
-      <div className="donate-mobile">
-        <DonateChip/>
-        <small>Donations support the Radar · send on {DONATE_NETWORK_NOTE}</small>
-      </div>
-      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><DonateChip/><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
+      <footer><span>$FUEL / MORE RADAR</span><p>Public data · snapshot, not advice</p><a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">Open FUEL market</a></footer>
     </div>
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {NAV.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => setView(name)}><Icon size={19}/><span>{name}</span></button>)}
+      {NAV.map(({ name, Icon }) => <button key={name} aria-label={name} className={view === name ? 'selected' : ''} onClick={() => selectView(name)}><Icon size={19}/><span>{name}</span></button>)}
     </nav>
   </div>
 }

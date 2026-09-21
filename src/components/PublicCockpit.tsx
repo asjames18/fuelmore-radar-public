@@ -4,7 +4,7 @@ import { cockpitError } from '../lib/cockpitError'
 import { ExternalLink, RefreshCw, Wallet } from 'lucide-react'
 import {
   estimateSlotRewards,
-  fetchCockpitSnapshot,
+  fetchCockpitSnapshotSmart,
   groupSlotsByUtcDay,
   type CockpitSnapshot,
 } from '../lib/cockpit'
@@ -26,6 +26,9 @@ export function PublicCockpit({ data }: { data: RadarData }) {
   const [walletInput, setWalletInput] = useState<string>('')
   const [activeWallet, setActiveWallet] = useState<string>('')
   const [cockpit, setCockpit] = useState<CockpitSnapshot | null>(null)
+  // Ref mirror for incremental refresh: the effect closure must not depend on
+  // `cockpit` state or it would re-run on every snapshot.
+  const cockpitRef = useRef<CockpitSnapshot | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [progress, setProgress] = useState('Loading your mint inventory…')
   const [error, setError] = useState<string | null>(null)
@@ -48,11 +51,12 @@ export function PublicCockpit({ data }: { data: RadarData }) {
     const deadline = window.setTimeout(() => controller.abort('timeout'), 5 * 60_000)
     async function poll() {
       try {
-        const next = await fetchCockpitSnapshot(activeWallet, message => {
+        const { snapshot: next } = await fetchCockpitSnapshotSmart(activeWallet, message => {
           if (!stopped) setProgress(message)
-        }, {signal:controller.signal})
+        }, { signal: controller.signal, previous: cockpitRef.current })
         if (stopped) return
         setCockpit(next)
+        cockpitRef.current = next
         setStatus('ready')
         setError(null)
         setProgress('')
@@ -72,8 +76,8 @@ export function PublicCockpit({ data }: { data: RadarData }) {
               slots: next.slots,
               globalRank: next.globalRank,
               nowTs: next.observedAt,
-              blockNumber: next.blockNumber,
-              blockHash: next.blockHash,
+              blockNumber: next.slotsPinnedBlockNumber,
+              blockHash: next.slotsPinnedBlockHash,
               signal: controller.signal,
               onProgress: message => { if (!stopped) setRewardProgress(message) },
             })

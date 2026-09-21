@@ -1,9 +1,10 @@
 import { resolveRpcUrl } from './rpc-config.mjs'
 import { loadReport, activityEnvelope } from './activity-edge.mjs'
 import { findDisallowedRpcMethods } from './rpc-allowlist.mjs'
+import { handleAnalyticsEvent, handleAnalyticsSummary } from './analytics.mjs'
+import { handleCockpitRequest } from './cockpit-cache.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
-
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
 
 const rpcCache = new Map()
@@ -115,7 +116,11 @@ export default {
 
           if (cacheKey) {
             const cached = rpcCache.get(cacheKey)
-            if (cached && now - cached.timestamp < 8000) {
+            const isPinnedCall = parsed?.method === 'eth_call'
+              && typeof parsed?.params?.[1] === 'object' && parsed.params[1] !== null
+              && typeof parsed.params[1].blockHash === 'string'
+            const cacheTtlMs = isPinnedCall ? 600_000 : 8000
+            if (cached && now - cached.timestamp < cacheTtlMs) {
               const resJson = { ...cached.json, id: parsed.id ?? null }
               return new Response(JSON.stringify(resJson), {
                 status: 200,
@@ -219,6 +224,21 @@ export default {
       } catch {
         return Response.json({ error: 'Market history unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
       }
+    }
+
+    if (url.pathname === '/api/analytics') {
+      if (request.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } })
+      return handleAnalyticsEvent(request, env)
+    }
+
+    if (url.pathname === '/api/analytics/summary') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleAnalyticsSummary(request, env)
+    }
+
+    if (url.pathname === '/api/cockpit') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleCockpitRequest(request, env)
     }
 
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rpc')) return Response.json({ error: 'Not found' }, { status: 404 })

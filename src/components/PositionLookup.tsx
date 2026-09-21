@@ -8,6 +8,7 @@ import { isAddress } from 'viem'
 import { useEffect, useState } from 'react'
 import { CalendarClock, Search, WalletCards } from 'lucide-react'
 import { fetchWalletPosition } from '../lib/api'
+import { track } from '../lib/analytics'
 import { formatToken, shortAddress } from '../lib/format'
 import type { WalletPosition } from '../lib/types'
 
@@ -29,6 +30,7 @@ export function PositionLookup({ defaultWallet = '' }: { defaultWallet?: string 
     const input = candidate.trim()
     if (status === 'loading') return
     if (!isAddress(input)) { setPosition(null); setStatus('error'); setMessage('Enter a valid EVM wallet address.'); return }
+    track('wallet_lookup')
     setAddress(input)
     setPosition(null)
     setStatus('loading')

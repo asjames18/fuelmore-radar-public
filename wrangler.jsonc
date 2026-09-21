@@ -16,11 +16,12 @@
     {
       "binding": "ACTIVITY",
       "id": "REPLACE_WITH_PUBLIC_KV_ID"
+    },
+    {
+      "binding": "COCKPIT_CACHE",
+      "id": "efbf0ca8482f4ec487a23974a66c170a"
     }
   ],
-  "triggers": {
-    "crons": ["*/15 * * * *"]
-  },
   "assets": {
     "directory": "./dist-public",
     "binding": "ASSETS",

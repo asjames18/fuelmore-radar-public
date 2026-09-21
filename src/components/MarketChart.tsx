@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Area, Brush, CartesianGrid, ComposedChart, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { formatUsd } from '../lib/format'
-import { MarketCandles, type CandleToken } from './MarketCandles'
+import { track } from '../lib/analytics'
 import { PAIRS, DEXSCREENER } from '../lib/contracts'
 import { marketComparison, type ChartRange } from '../lib/marketComparison'
 import type { HistoryPoint } from '../lib/types'
@@ -11,13 +11,8 @@ type View = 'candles' | 'usd' | 'percent'
 const utcTick = (value: number) => new Date(value).toISOString().slice(5,16).replace('T',' ')
 const percent = (value: number) => `${value>0?'+':''}${value.toFixed(2)}%`
 const colors = {FUEL:'#36ff6a',MORE:'#63b3ff'}
-// Dexscreener embeds stay the visible candle view until our own snapshot
-// history is deep enough for complete-looking candles; then our first-party
-// candles take over automatically. Parameters from Dexscreener's official
-// "Embed this chart" dialog.
+// Parameters from Dexscreener's official "Embed this chart" dialog. Never synthesize OHLC from snapshots.
 const candleUrl = (token: 'FUEL'|'MORE') => `${DEXSCREENER}/${PAIRS[token==='FUEL'?'fuel':'more']}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartDefaultOnMobile=1&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=60`
-// ~7 days of 15-minute Radar snapshots is enough for solid 1H and 1D candles.
-const OWN_CANDLES_MIN_DAYS = 7
 
 export function MarketChart({ history }: { history: HistoryPoint[] }) {
   const [symbol, setSymbol] = useState<'Compare' | 'FUEL' | 'MORE'>('Compare')
@@ -29,12 +24,16 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
   const candles = isPrice && view==='candles'
   const normalized = isPrice && view==='percent'
   const dual = isPrice && !normalized && symbol==='Compare'
-  const series = (symbol === 'Compare' ? ['FUEL','MORE'] : [symbol]) as readonly CandleToken[]
+  const series = symbol === 'Compare' ? ['FUEL','MORE'] as const : [symbol]
   const keyFor = (token: string) => `${token==='FUEL'?'fuel':'more'}${normalized?'Change':isPrice?'Price':'Liquidity'}`
   const enough = points.length>1
-  const historyDays = history.length>1 ? (history[history.length-1].at - history[0].at) / 86400000 : 0
-  const ownCandles = historyDays >= OWN_CANDLES_MIN_DAYS
-  const description = candles ? (ownCandles ? 'Our candles · aggregated from 15-minute Radar snapshots · each token has its own USD scale · UTC' : 'USD candles · Dexscreener · our own candles take over automatically once 7 days of Radar snapshots accumulate') : normalized ? 'Price change (%) · shared starting observation · UTC' : isPrice ? (dual?'Actual price · USD · FUEL left · MORE right · independent scales':'Actual price · USD · UTC') : 'Pool liquidity · USD · UTC'
+  const chartTracked = useRef(false)
+  useEffect(() => {
+    if (chartTracked.current) return
+    chartTracked.current = true
+    track('chart_rendered')
+  }, [])
+  const description = candles ? 'USD candles · market history' : normalized ? 'Price change (%) · shared starting observation · UTC' : isPrice ? (dual?'Actual price · USD · FUEL left · MORE right · independent scales':'Actual price · USD · UTC') : 'Pool liquidity · USD · UTC'
   return <section className="panel chart-panel comparison-chart" aria-labelledby="market-chart-title">
     <div className="panel-heading chart-heading">
       <div><h2 id="market-chart-title">FUEL / MORE comparison</h2><p>{description}</p></div>
@@ -45,15 +44,15 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
       {isPrice && <div className="segmented" aria-label="Price presentation">{(['candles','usd','percent'] as const).map(v=><button key={v} aria-pressed={view===v} className={view===v?'active':''} onClick={()=>setView(v)}>{v==='candles'?'Candles':v==='usd'?'Compare USD':'Change %'}</button>)}</div>}
       {!candles && <div className="segmented" aria-label="Chart range">{(['1D','7D','30D','ALL'] as const).map(r=><button key={r} aria-pressed={range===r} className={range===r?'active':''} onClick={()=>setRange(r)}>{r}</button>)}</div>}
     </div>
-    {candles ? (ownCandles ? <MarketCandles history={history} tokens={series}/> : <>
+    {candles ? <>
       <div className={`candle-grid ${series.length===1?'single':''}`}>
         {series.map(token=><div className="candle-pane" key={token}>
           <div className="candle-heading"><strong style={{color:colors[token]}}>{token} / USD</strong><a href={`${DEXSCREENER}/${PAIRS[token==='FUEL'?'fuel':'more']}`} target="_blank" rel="noreferrer">Open chart ↗</a></div>
           <iframe title={`${token} USD candlestick chart`} src={candleUrl(token)} referrerPolicy="strict-origin-when-cross-origin"/>
         </div>)}
       </div>
-      <p className="chart-note">Market candles by Dexscreener · each token has its own USD scale. Our own candles take over automatically once 7 days of Radar snapshots accumulate. Use Compare USD to overlay both tokens. If a chart cannot load, use Open chart.</p>
-    </>) : <>
+      <p className="chart-note">Market candles by Dexscreener · each token has its own USD scale. Use Compare USD to overlay both tokens. If a chart cannot load, use Open chart.</p>
+    </> : <>
       <div className="chart-quotes" aria-label="Latest chart observations">{series.map(token=>{
         const p=points.at(-1); const value=p ? isPrice?(token==='FUEL'?p.fuelPrice:p.morePrice):(token==='FUEL'?p.fuelLiquidity:p.moreLiquidity):null
         return <div key={token}><span style={{color:colors[token]}}>{token}</span><strong>{formatUsd(value??null,!isPrice)}</strong></div>
