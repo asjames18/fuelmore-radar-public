@@ -50,6 +50,27 @@ export async function fetchMintFee(): Promise<{ mintFeeEth: number | null; gasPr
   const eth = Number(formatUnits(fee, 18))
   return { mintFeeEth: Number.isFinite(eth) && eth > 0 ? eth : null, gasPrice }
 }
+/**
+ * Mint + claim fees in ETH at the current gas price, read live from the FUEL
+ * token contract. Claim fees route through the same FeeDistributor as mint
+ * fees (verified `_collectClaimFee` forwarding), so the burn upper-bound
+ * scenario counts both. Returns nulls (never zero) when any read fails.
+ */
+export async function fetchFeePair(): Promise<{ mintFeeEth: number | null; claimFeeEth: number | null; gasPrice: bigint | null }> {
+  if (await client.getChainId() !== robinhood.id) throw Error('Unexpected RPC network; fee withheld.')
+  const gasPrice = await safe(client.getGasPrice())
+  if (gasPrice === null) return { mintFeeEth: null, claimFeeEth: null, gasPrice: null }
+  const [mintFee, claimFee] = await Promise.all([
+    safe(client.readContract({ address: CONTRACTS[0].address, abi: tokenAbi, functionName: 'mintFee', args: [gasPrice] })),
+    safe(client.readContract({ address: CONTRACTS[0].address, abi: tokenAbi, functionName: 'claimFee', args: [gasPrice] })),
+  ])
+  const toEth = (fee: bigint | null) => {
+    if (fee === null || fee < 0n) return null
+    const eth = Number(formatUnits(fee, 18))
+    return Number.isFinite(eth) && eth > 0 ? eth : null
+  }
+  return { mintFeeEth: toEth(mintFee), claimFeeEth: toEth(claimFee), gasPrice }
+}
 export async function fetchPlannerQuote(count: number): Promise<PlannerQuote> {
   parseBatchSize(String(count))
   if (await client.getChainId() !== robinhood.id) throw Error('Unexpected RPC network; quote withheld.')

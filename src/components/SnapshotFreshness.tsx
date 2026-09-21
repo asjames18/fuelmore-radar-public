@@ -7,7 +7,7 @@ export function SnapshotFreshness({ data }: { data: RadarData }) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer) }, [])
   return <details className="panel source-health">
-    <summary>Saved data timestamps · background sync every 15 minutes</summary>
+    <summary>Saved data timestamps · background sync scheduled every 15 minutes</summary>
     <p>Last sync attempt: {new Date(data.updatedAt).toLocaleString()} · schedules may be delayed. Refresh checks for a newer saved copy. Each source below keeps its own observation time. Daily mint/claim activity has a separate scan timestamp.</p>
     <ul>{data.sources.map(source => <li key={source.name}>
       <strong>{source.name.replace('Protocol RPC reads', 'Protocol statistics')}</strong>

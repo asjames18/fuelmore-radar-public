@@ -59,7 +59,7 @@ const SUBTITLES: Record<View, string> = {
   Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
   Speculation: 'Where today\u2019s chain state points — forward paths for price, supply, burns, and liquidity.',
-  Contracts: 'Verified contract addresses — check the address, not the name.',
+  Contracts: 'Contract address registry — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
   Planner: 'Coming soon — prediction plans from current and future numbers.',
 }
@@ -83,7 +83,7 @@ function DataSources() {
     <a href="https://dexscreener.com/robinhood" target="_blank" rel="noreferrer"><i/>Dexscreener</a>
     <a href="https://robinhoodchain.blockscout.com" target="_blank" rel="noreferrer"><i/>Blockscout</a>
     <a href="https://docs.robinhood.com/chain/connecting/" target="_blank" rel="noreferrer"><i/>Robinhood RPC</a>
-    <p>Balances and claims from chain RPC. Prices/liquidity via Dexscreener (their on-chain pool mirror). Delayed or partial values possible — not advice.</p>
+    <p>Balances and claims from chain RPC. Prices/liquidity via Dexscreener (their on-chain pool mirror); the market-history collector fails over Dexscreener → GeckoTerminal → DexPaprika. Delayed or partial values possible — not advice.</p>
   </div>
 }
 
@@ -176,7 +176,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           {personal ? <><div className="updated"><span>Saved sync attempt</span><strong>{data ? timeAgo(data.updatedAt) : '—'}</strong></div>
           <button className="refresh" onClick={() => { track('refresh_clicked'); void refresh() }} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
             <span title={data ? new Date(data.updatedAt).toISOString() : undefined}>Last sync: {data ? timeAgo(data.updatedAt) : 'waiting for data'}</span>
-            <small>Updates every 15 minutes</small>
+            <small>Scheduled every 15 minutes</small>
           </div>}
           <div className="read-only"><ShieldCheck size={16}/><span>Read-only</span></div>
         </div>
@@ -196,7 +196,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         {!data ? <div className="loading-grid" aria-label="Loading dashboard"><div/><div/><div/><div/></div> : <>
           {view === 'Overview' && <>
             <TokenCards data={data}/>
-            <OverviewStats protocol={data.protocol} onSeeProtocol={() => selectView('Protocol')} onSeeMarkets={() => selectView('Markets')}/>
+            <OverviewStats protocol={data.protocol} protocolObservation={data.protocolObservation} onSeeProtocol={() => selectView('Protocol')} onSeeMarkets={() => selectView('Markets')}/>
             <ExploreRadar select={selectView}/>
             {Analytics && <Analytics/>}
             <ActivityTable activity={data.activity} sources={data.sources}/>

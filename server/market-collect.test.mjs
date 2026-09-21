@@ -738,12 +738,14 @@ describe('runMarketSnapshot success path', () => {
       assert.equal(result.ok, true)
       assert.equal(writes.length, 1)
       const [kvKey, body] = writes[0]
-      assert.equal(kvKey, 'market-history-v1')
+      assert.equal(kvKey, 'market-history-v2')
       const stored = JSON.parse(body)
       assert.equal(stored.points.length, 1)
       assert.equal(stored.points[0].fuelPrice, 1.23)
       assert.equal(stored.points[0].morePrice, 4.56)
       assert.equal(stored.points[0].moreLiquidity, 98765)
+      assert.equal(stored.points[0].fuelSource, 'dexscreener')
+      assert.equal(stored.points[0].moreSource, 'dexscreener')
     } finally {
       console.restore()
     }
@@ -864,6 +866,144 @@ describe('dexpaprika api key', () => {
         assert.ok(!('Authorization' in (call.init.headers ?? {})), JSON.stringify(call.init.headers))
       }
       assert.ok(console.logs.some((m) => m.includes('DexPaprika keyless mode')), console.logs.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+})
+
+describe('quote freshness gate (E1)', () => {
+  it('rejects a DexPaprika quote older than 30 minutes and fails over', async () => {
+    const { checkQuoteFreshness, MarketValidationError: MVE } = await import('./price-sources.mjs')
+    const now = 1_700_000_000
+    const stale = { observedAt: now - 2 * 3600 }
+    assert.throws(() => checkQuoteFreshness(stale, 'fuel', 'dexpaprika', now), (error) => {
+      assert.ok(error instanceof MVE)
+      assert.equal(error.check, 'quote-freshness')
+      return true
+    })
+    assert.equal(checkQuoteFreshness({ observedAt: now - 60 }, 'fuel', 'dexpaprika', now).observedAt, now - 60)
+    // A source that publishes no quote timestamp is exempt, not failed.
+    assert.equal(checkQuoteFreshness({ observedAt: null }, 'fuel', 'dexscreener', now).observedAt, null)
+  })
+  it('skips a stale DexPaprika quote and uses the next source', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    try {
+      const staleFuel = { ...paprikaFuel(), price_time: new Date((1_700_000_000 - 7200) * 1000).toISOString() }
+      const { fetch } = stubFetch({
+        ['dexpaprika|' + FUEL_PAIR]: [ok(staleFuel)],
+        ['dexpaprika|' + MORE_PAIR]: [ok(paprikaMore())],
+        ['geckoterminal|' + FUEL_PAIR]: [ok(geckoFuel())],
+      })
+      const point = await collectMarketSnapshot(fetch, 1_700_000_000, {
+        sleep,
+        sources: ['dexpaprika', 'geckoterminal'],
+      })
+      assert.ok(point, 'expected failover to geckoterminal for fuel')
+      assert.equal(point.fuelSource, 'geckoterminal')
+      assert.equal(point.fuelPrice, 0.005)
+      assert.equal(point.moreSource, 'dexpaprika')
+      assert.ok(console.errors.some((m) => m.includes('quote-freshness')), console.errors.join(' | '))
+    } finally {
+      console.restore()
+    }
+  })
+  it('withholds the point when only a stale quote answers', async () => {
+    const { sleep } = sleepStub()
+    const staleFuel = { ...paprikaFuel(), price_time: new Date((1_700_000_000 - 7200) * 1000).toISOString() }
+    const staleMore = { ...paprikaMore(), price_time: new Date((1_700_000_000 - 7200) * 1000).toISOString() }
+    const { fetch } = stubFetch({
+      ['dexpaprika|' + FUEL_PAIR]: [ok(staleFuel)],
+      ['dexpaprika|' + MORE_PAIR]: [ok(staleMore)],
+    })
+    const point = await collectMarketSnapshot(fetch, 1_700_000_000, { sleep, sources: ['dexpaprika'] })
+    assert.equal(point, null)
+  })
+})
+
+describe('price deviation guard (E1)', () => {
+  const kvWith = (points) => {
+    const writes = []
+    return {
+      writes,
+      env: {
+        ACTIVITY: {
+          get: async () => ({ points }),
+          put: async (...args) => { writes.push(args) },
+        },
+      },
+    }
+  }
+  it('withholds a >50% move vs a fresh point when no second source corroborates', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const lastT = Math.floor(Date.now() / 1000) - 60
+    const last = { t: lastT, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200, fuelSource: 'dexscreener', moreSource: 'dexscreener' }
+    const { writes, env } = kvWith([last])
+    try {
+      // Dexscreener reports a 60% drop on FUEL; the corroborating source
+      // (geckoterminal) disagrees, so the point must be withheld.
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        if (key.includes('geckoterminal')) return ok(geckoPayload(FUEL_PAIR, FUEL_TOKEN, { attributes: { base_token_price_usd: '1.01', reserve_in_usd: '100' } }))()
+        if (key.includes(FUEL_PAIR) || key.includes(FUEL_TOKEN)) {
+          return ok({ pairs: [pairEntry(FUEL_PAIR, FUEL_TOKEN, { priceUsd: '0.4', liquidity: { usd: 100 } })] })()
+        }
+        if (key.includes(MORE_PAIR) || key.includes(MORE_TOKEN)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, false)
+      assert.equal(result.reason, 'deviation-uncorroborated')
+      assert.equal(writes.length, 0)
+    } finally {
+      console.restore()
+    }
+  })
+  it('accepts a >50% move when a second source corroborates it', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const lastT = Math.floor(Date.now() / 1000) - 60
+    const last = { t: lastT, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200, fuelSource: 'dexscreener', moreSource: 'dexscreener' }
+    const { writes, env } = kvWith([last])
+    try {
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        // Both sources agree on the ~99% crash: the move is real.
+        if (key.includes('geckoterminal')) return ok(geckoPayload(FUEL_PAIR, FUEL_TOKEN, { attributes: { base_token_price_usd: '0.011', reserve_in_usd: '100' } }))()
+        if (key.includes(FUEL_PAIR) || key.includes(FUEL_TOKEN)) {
+          return ok({ pairs: [pairEntry(FUEL_PAIR, FUEL_TOKEN, { priceUsd: '0.01', liquidity: { usd: 100 } })] })()
+        }
+        if (key.includes(MORE_PAIR) || key.includes(MORE_TOKEN)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, true)
+      assert.equal(writes.length, 1)
+      const stored = JSON.parse(writes[0][1])
+      assert.equal(stored.points.at(-1).fuelPrice, 0.01)
+    } finally {
+      console.restore()
+    }
+  })
+  it('does not guard against a stale last point (regime moves are allowed)', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const last = { t: Math.floor(Date.now() / 1000) - 4 * 3600, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200 }
+    const { writes, env } = kvWith([last])
+    try {
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        if (key.includes(FUEL_PAIR) || key.includes(FUEL_TOKEN)) {
+          return ok({ pairs: [pairEntry(FUEL_PAIR, FUEL_TOKEN, { priceUsd: '0.01', liquidity: { usd: 100 } })] })()
+        }
+        if (key.includes(MORE_PAIR) || key.includes(MORE_TOKEN)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, true)
+      assert.equal(writes.length, 1)
     } finally {
       console.restore()
     }

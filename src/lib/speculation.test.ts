@@ -3,8 +3,11 @@ import { parseUnits } from 'viem'
 import {
   trailingStats, projectSupply, projectNetSupply, projectBurns, projectSupplies, projectPrices, projectLiquidity,
   tokens, formatTokens, formatUsd,
+  todayPartialStats, detectClaimRegimeChange, observedBurnPace,
+  supplyVelocityWarning,
   FUEL_BURN_SHARE, MORE_BURN_SHARE,
 } from './speculation'
+import type { ActivityDay } from './speculation'
 
 const E18 = 10n ** 18n
 const days = (n: number) => Array.from({ length: n }, (_, i) => ({
@@ -63,7 +66,7 @@ describe('projectSupply', () => {
 describe('projectBurns', () => {
   const base = {
     fuelBurntNow: 50_000n * E18, moreBurntNow: 1_000n * E18,
-    avgMintsPerDay: 10, mintFeeEth: 0.01,
+    avgMintsPerDay: 10, avgClaimsPerDay: 5, mintFeeEth: 0.01, claimFeeEth: 0.005,
     fuelPriceNative: 0.0001, morePriceNative: 0.001,
     startDate: '2026-09-19', horizonDays: 30,
   }
@@ -73,31 +76,33 @@ describe('projectBurns', () => {
     const result = projectBurns(base)
     expect(result).not.toBeNull()
     const { points, pace } = result!
-    // 10 mints/day × 0.01 ETH = 0.1 ETH/day in fees
-    expect(pace.ethToFuelBurnerPerDay).toBeCloseTo(0.025, 12)
-    expect(pace.ethToMoreBurnerPerDay).toBeCloseTo(0.03, 12)
-    expect(pace.fuelPerDay).toBeCloseTo(250, 9)
-    expect(pace.morePerDay).toBeCloseTo(30, 9)
+    // (10 mints × 0.01 + 5 claims × 0.005) = 0.125 ETH/day in routed fees
+    expect(pace.ethToFuelBurnerPerDay).toBeCloseTo(0.03125, 12)
+    expect(pace.ethToMoreBurnerPerDay).toBeCloseTo(0.0375, 12)
+    expect(pace.fuelPerDay).toBeCloseTo(312.5, 9)
+    expect(pace.morePerDay).toBeCloseTo(37.5, 9)
     expect(points).toHaveLength(30)
-    expect(points[0].fuel).toBeCloseTo(50250, 6)
-    expect(points[0].more).toBeCloseTo(1030, 6)
-    expect(points[29].fuel).toBeCloseTo(57500, 6)
-    expect(points[29].more).toBeCloseTo(1900, 6)
+    expect(points[0].fuel).toBeCloseTo(50312.5, 6)
+    expect(points[0].more).toBeCloseTo(1037.5, 6)
+    expect(points[29].fuel).toBeCloseTo(59375, 6)
+    expect(points[29].more).toBeCloseTo(2125, 6)
   })
   it('emits a gap (null), not a flat line, when one token price is unavailable', () => {
     const result = projectBurns({ ...base, morePriceNative: null })
     expect(result).not.toBeNull()
     expect(result!.pace.morePerDay).toBeNull()
-    expect(result!.pace.fuelPerDay).toBeCloseTo(250, 9)
+    expect(result!.pace.fuelPerDay).toBeCloseTo(312.5, 9)
     // The MORE pace is unknown: every projected point is a gap, while the
     // ETH pace to the burner is still reported honestly.
     expect(result!.points[0].more).toBeNull()
-    expect(result!.points[0].fuel).toBeCloseTo(50250, 6)
-    expect(result!.pace.ethToMoreBurnerPerDay).toBeCloseTo(0.03, 12)
+    expect(result!.points[0].fuel).toBeCloseTo(50312.5, 6)
+    expect(result!.pace.ethToMoreBurnerPerDay).toBeCloseTo(0.0375, 12)
   })
   it('returns null when the projection cannot be computed honestly', () => {
     expect(projectBurns({ ...base, mintFeeEth: 0 })).toBeNull()
     expect(projectBurns({ ...base, avgMintsPerDay: 0 })).toBeNull()
+    expect(projectBurns({ ...base, avgClaimsPerDay: -1 })).toBeNull()
+    expect(projectBurns({ ...base, claimFeeEth: -0.1 })).toBeNull()
     expect(projectBurns({ ...base, fuelPriceNative: null, morePriceNative: null })).toBeNull()
     expect(projectBurns({ ...base, fuelPriceNative: 0, morePriceNative: -1 })).toBeNull()
     expect(projectBurns({ ...base, startDate: 'bad' })).toBeNull()
@@ -385,5 +390,124 @@ describe('projectLiquidity on the net path', () => {
     expect(points[0].fuelFlat).toBe(1000)
     expect(points[0].fuelScaled).toBeNull()
     expect(points[0].fuelNetScaled).toBeCloseTo(1250, 9)
+  })
+})
+
+describe('todayPartialStats', () => {
+  const day = (date: string, mints: number, claims: number, claimedFuel: string): ActivityDay => ({ date, mints, claims, claimedFuel })
+  it('reports the latest day as a partial-day observation, never annualized', () => {
+    const partial = todayPartialStats([
+      day('2026-09-19', 10, 0, '0'),
+      day('2026-09-20', 12, 0, '0'),
+      day('2026-09-21', 3, 775, '261443382'),
+    ])
+    expect(partial).not.toBeNull()
+    expect(partial!.date).toBe('2026-09-21')
+    expect(partial!.claims).toBe(775)
+    expect(partial!.claimedFuel).toBe(261443382)
+    expect(partial!.avgClaimSize).toBeCloseTo(261443382 / 775, 9)
+  })
+  it('returns null for empty or invalid input', () => {
+    expect(todayPartialStats([])).toBeNull()
+    expect(todayPartialStats([day('2026-09-21', 1, -2, '5')])).toBeNull()
+  })
+})
+
+describe('detectClaimRegimeChange', () => {
+  const day = (date: string, mints: number, claims: number, claimedFuel: string): ActivityDay => ({ date, mints, claims, claimedFuel })
+  const preUnlock = [
+    day('2026-09-19', 10, 0, '0'),
+    day('2026-09-20', 12, 0, '0'),
+    day('2026-09-21', 3, 775, '261443382'),
+  ]
+  it('flags the first-unlock day: trailing zeros, today has claims', () => {
+    const stats = trailingStats(preUnlock)!
+    expect(stats.avgClaimsPerDay).toBe(0)
+    const regime = detectClaimRegimeChange(preUnlock, stats)
+    expect(regime.kind).toBe('claim-regime-change')
+    if (regime.kind === 'claim-regime-change') expect(regime.today.claims).toBe(775)
+  })
+  it('stays normal once complete days carry claims', () => {
+    const days = [...preUnlock, day('2026-09-22', 4, 900, '300000000')]
+    const stats = trailingStats(days)!
+    expect(stats.avgClaimsPerDay).toBeGreaterThan(0)
+    expect(detectClaimRegimeChange(days, stats).kind).toBe('normal')
+  })
+  it('stays normal when today has no claims', () => {
+    const stats = trailingStats(preUnlock.slice(0, 2).concat(day('2026-09-21', 3, 0, '0')))!
+    expect(detectClaimRegimeChange(preUnlock.slice(0, 2).concat(day('2026-09-21', 3, 0, '0')), stats).kind).toBe('normal')
+  })
+})
+
+describe('observedBurnPace', () => {
+  it('returns null with fewer than two observations — never a fabricated pace', () => {
+    expect(observedBurnPace([])).toBeNull()
+    expect(observedBurnPace([{ fuelBurnt: 322436, moreBurnt: 1000, observedAt: Date.now() }])).toBeNull()
+  })
+  it('returns null when observations are less than a day apart', () => {
+    const now = Date.now()
+    expect(observedBurnPace([
+      { fuelBurnt: 300000, moreBurnt: 900, observedAt: now - 3600_000 },
+      { fuelBurnt: 322436, moreBurnt: 1000, observedAt: now },
+    ])).toBeNull()
+  })
+  it('measures the per-day delta of the cumulative counters', () => {
+    const now = Date.now()
+    const pace = observedBurnPace([
+      { fuelBurnt: 300000, moreBurnt: 900, observedAt: now - 2 * 86400_000 },
+      { fuelBurnt: 322436, moreBurnt: 1000, observedAt: now },
+    ])
+    expect(pace).not.toBeNull()
+    expect(pace!.fuelPerDay).toBeCloseTo(11218, 6)
+    expect(pace!.morePerDay).toBeCloseTo(50, 6)
+  })
+  it('returns null when counters move backwards', () => {
+    const now = Date.now()
+    expect(observedBurnPace([
+      { fuelBurnt: 322436, moreBurnt: 1000, observedAt: now - 2 * 86400_000 },
+      { fuelBurnt: 300000, moreBurnt: 900, observedAt: now },
+    ])).toBeNull()
+  })
+})
+
+describe('projectBurns upper bound', () => {
+  it('counts claim fees in the routed-fee bound', () => {
+    const E18 = 10n ** 18n
+    const withClaims = projectBurns({
+      fuelBurntNow: 0n, moreBurntNow: 0n, avgMintsPerDay: 10, avgClaimsPerDay: 100,
+      mintFeeEth: 0.01, claimFeeEth: 0.005, fuelPriceNative: 1, morePriceNative: 1,
+      startDate: '2026-09-19', horizonDays: 7,
+    })
+    const withoutClaims = projectBurns({
+      fuelBurntNow: 0n, moreBurntNow: 0n, avgMintsPerDay: 10, avgClaimsPerDay: 100,
+      mintFeeEth: 0.01, claimFeeEth: null, fuelPriceNative: 1, morePriceNative: 1,
+      startDate: '2026-09-19', horizonDays: 7,
+    })
+    // (10×0.01 + 100×0.005) = 0.6 ETH/day vs mint-only 0.1 ETH/day
+    expect(withClaims!.pace.ethToFuelBurnerPerDay).toBeCloseTo(0.15, 12)
+    expect(withoutClaims!.pace.ethToFuelBurnerPerDay).toBeCloseTo(0.025, 12)
+    expect(E18).toBe(10n ** 18n)
+  })
+})
+
+describe('supplyVelocityWarning', () => {
+  const base = { supplyObservedAt: 1000000, activityThroughAt: 1000000, partialDayClaims: 100 }
+  it('returns null when the snapshot is fresh (under 5 minutes)', () => {
+    expect(supplyVelocityWarning({ ...base, activityThroughAt: 1000299 })).toBeNull()
+  })
+  it('warns when the snapshot lags the claim flow', () => {
+    const w = supplyVelocityWarning({ ...base, activityThroughAt: 1000720 })
+    expect(w).toContain('~12 minutes')
+    expect(w).toContain('may lag actual supply')
+  })
+  it('returns null with no partial-day claims', () => {
+    expect(supplyVelocityWarning({ ...base, partialDayClaims: 0, activityThroughAt: 1003600 })).toBeNull()
+  })
+  it('returns null on missing inputs, never invents a warning', () => {
+    expect(supplyVelocityWarning({ ...base, supplyObservedAt: null, activityThroughAt: 1003600 })).toBeNull()
+    expect(supplyVelocityWarning({ ...base, activityThroughAt: null })).toBeNull()
+  })
+  it('returns null when the supply read is newer than the claim flow', () => {
+    expect(supplyVelocityWarning({ ...base, activityThroughAt: 999000 })).toBeNull()
   })
 })

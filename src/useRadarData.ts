@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchRadarData } from './lib/api'
-import { readHistory, recordHistory } from './lib/history'
+import { readHistory, recordHistory, fetchRemoteHistory, mergeHistory } from './lib/history'
 import { decodeDashboard, encodeDashboard, mergeDashboard, DASHBOARD_MAX_AGE } from './lib/dashboardSnapshot'
 import { storageKey } from './lib/storage'
 import type { HistoryPoint, RadarData } from './lib/types'
@@ -39,6 +39,12 @@ export function useRadarData() {
       try { localStorage.setItem(storageKey('dashboard'), encodeDashboard(next)) } catch { /* Session remains usable. */ }
       const market = next.sources.find(s => s.name === 'Dexscreener markets')
       if (market?.status === 'available' && !market.retained) setHistory(recordHistory(next.pairs, Date.parse(market.checkedAt)))
+      // Progressive enhancement: fold the server-collected market history
+      // (failover-guarded, per-point attribution) under the local series so
+      // the Markets chart and the market cards can never disagree.
+      void fetchRemoteHistory().then(remote => {
+        if (remote.length > 0) setHistory(current => mergeHistory(remote, current))
+      })
       setError(null)
       setNow(Date.now())
     } catch (cause) {

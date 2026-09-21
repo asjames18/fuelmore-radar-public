@@ -67,8 +67,8 @@ it('shows today numbers, 7-day totals, and next-7-day maturities without charts'
   render(<OverviewStats protocol={protocol} {...handlers}/>)
   await screen.findByText((_, el) => el?.textContent === 'Today · 2026-09-21 · incomplete')
   // today block
-  expect(screen.getByText('Minting wallets').parentElement?.querySelector('strong')?.textContent).toBe('14')
-  expect(screen.getByText('Claiming wallets').parentElement?.querySelector('strong')?.textContent).toBe('10')
+  expect(screen.getByText('Mint senders').parentElement?.querySelector('strong')?.textContent).toBe('14')
+  expect(screen.getByText('Claim senders').parentElement?.querySelector('strong')?.textContent).toBe('10')
   // 7-day totals: mints 9+10+11+12+13+14+15 = 84, claims 5+6+7+8+9+10+11 = 56
   const groups = screen.getAllByText('Mint starts')
   expect(groups).toHaveLength(2)
@@ -116,4 +116,20 @@ it('treats a null report in the envelope as unavailable', async () => {
   render(<OverviewStats protocol={protocol} {...handlers}/>)
   await screen.findByText('Daily stats unavailable right now.')
   expect(screen.getByText('Protocol at a glance')).toBeTruthy()
+})
+
+it('flags a lagging supply snapshot during claim flow instead of presenting it as current', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(envelope)))
+  const nowSec = Math.floor(Date.now() / 1000)
+  render(<OverviewStats protocol={protocol} protocolObservation={{ blockTimestamp: String(nowSec - 900) }} {...handlers}/>)
+  await screen.findByText((_, el) => el?.textContent === 'Today · 2026-09-21 · incomplete')
+  expect(screen.getByText(/Supply is moving quickly/)).toBeTruthy()
+})
+
+it('shows no supply warning when the snapshot is fresh', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(envelope)))
+  const nowSec = Math.floor(Date.now() / 1000)
+  render(<OverviewStats protocol={protocol} protocolObservation={{ blockTimestamp: String(nowSec - 60) }} {...handlers}/>)
+  await screen.findByText((_, el) => el?.textContent === 'Today · 2026-09-21 · incomplete')
+  expect(screen.queryByText(/Supply is moving quickly/)).toBeNull()
 })

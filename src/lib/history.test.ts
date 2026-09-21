@@ -65,3 +65,56 @@ describe('local market history', () => {
     expect(recordHistory([pair])).toHaveLength(2)
   })
 })
+
+describe('remote market history', () => {
+  const remote = (t: number, extra: Record<string, unknown> = {}) => ({
+    t,
+    fuelPrice: 0.004, morePrice: 0.00003, fuelLiquidity: 1200, moreLiquidity: 900,
+    fuelSource: 'dexscreener', moreSource: 'geckoterminal',
+    fuelObservedAt: t - 60, moreObservedAt: null,
+    ...extra,
+  })
+
+  it('normalizes server v2 points to ms timestamps with attribution', async () => {
+    const { normalizeRemotePoint } = await import('./history')
+    const p = normalizeRemotePoint(remote(1_700_000_000))
+    expect(p).toMatchObject({
+      at: 1_700_000_000_000,
+      fuelPrice: 0.004,
+      fuelSource: 'dexscreener',
+      moreSource: 'geckoterminal',
+      fuelObservedAt: 1_699_999_940_000,
+    })
+    expect(p!.moreObservedAt).toBeUndefined()
+  })
+
+  it('rejects malformed server points', async () => {
+    const { normalizeRemotePoint } = await import('./history')
+    expect(normalizeRemotePoint(null)).toBeNull()
+    expect(normalizeRemotePoint({ t: 'soon' })).toBeNull()
+    expect(normalizeRemotePoint(remote(1_700_000_000, { fuelPrice: -1 }))).toBeNull()
+    expect(normalizeRemotePoint(remote(1_700_000_000, { fuelSource: 42 }))).toBeNull()
+  })
+
+  it('fetches and normalizes the server series, degrading to [] on failure', async () => {
+    const { fetchRemoteHistory } = await import('./history')
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ points: [remote(Math.floor(now / 1000) - 900), { t: 'bad' }] })))
+    const points = await fetchRemoteHistory()
+    expect(points).toHaveLength(1)
+    expect(points[0].at).toBe((Math.floor(now / 1000) - 900) * 1000)
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('down') }))
+    expect(await fetchRemoteHistory()).toEqual([])
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 503 })))
+    expect(await fetchRemoteHistory()).toEqual([])
+  })
+
+  it('merges remote under local: remote wins timestamp collisions, result is sorted and persisted', async () => {
+    const { mergeHistory } = await import('./history')
+    const local = [point(now - 60_000), { ...point(now - 120_000), fuelSource: 'stale-local' }]
+    const remotePt = { at: now - 120_000, fuelPrice: 9, morePrice: null, fuelLiquidity: 100, moreLiquidity: null, fuelSource: 'dexpaprika' }
+    const merged = mergeHistory([remotePt], local)
+    expect(merged.map(p => p.at)).toEqual([now - 120_000, now - 60_000])
+    expect(merged[0].fuelSource).toBe('dexpaprika')
+    expect(vi.mocked(localStorage.setItem)).toHaveBeenCalled()
+  })
+})

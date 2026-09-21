@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { parseUnits } from 'viem'
 import { formatClaimedFuel, formatEth, formatToken } from '../lib/format'
+import { supplyVelocityWarning } from '../lib/speculation'
 import { FirstClaimCountdown } from './FirstClaimCountdown'
 import type { ProtocolSnapshot } from '../lib/types'
 import type { MaturityReport } from './MaturityTimeline'
@@ -58,8 +59,9 @@ function nextSevenDayMaturities(maturity: MaturityReport | undefined, today: str
  * Charts and full tables live in their own views; this panel only shows
  * numbers and links onward.
  */
-export function OverviewStats({ protocol, onSeeProtocol, onSeeMarkets }: {
+export function OverviewStats({ protocol, protocolObservation, onSeeProtocol, onSeeMarkets }: {
   protocol: ProtocolSnapshot | null
+  protocolObservation?: { blockTimestamp: string }
   onSeeProtocol: () => void
   onSeeMarkets: () => void
 }) {
@@ -96,6 +98,14 @@ export function OverviewStats({ protocol, onSeeProtocol, onSeeMarkets }: {
   const mints7 = days.reduce((sum, day) => sum + day.mints, 0)
   const claims7 = days.reduce((sum, day) => sum + day.claims, 0)
   const delayed = envelope?.status === 'stale'
+  // Velocity-aware supply freshness: during claim floods the protocol
+  // snapshot can lag the claim flow, so flag it instead of presenting
+  // the supply figure as current.
+  const supplyWarning = supplyVelocityWarning({
+    supplyObservedAt: protocolObservation ? Number(protocolObservation.blockTimestamp) : null,
+    activityThroughAt: report?.throughTimestamp ?? null,
+    partialDayClaims: today?.claims ?? 0,
+  })
 
   return <section className="panel daily-pulse" aria-labelledby="daily-pulse-title">
     <div className="panel-heading">
@@ -107,8 +117,8 @@ export function OverviewStats({ protocol, onSeeProtocol, onSeeMarkets }: {
     {report && today && <>
       <h3 className="pulse-group">Today · {today.date} · <span className="pulse-flag">incomplete</span></h3>
       <div className="pulse-grid">
-        <Stat label="Minting wallets" value={num(today.mintWallets)}/>
-        <Stat label="Claiming wallets" value={num(today.claimWallets)}/>
+        <Stat label="Mint senders" value={num(today.mintWallets)}/>
+        <Stat label="Claim senders" value={num(today.claimWallets)}/>
         <Stat label="Mint starts" value={num(today.mints)}/>
         <Stat label="Reward claims" value={num(today.claims)}/>
         <Stat label="FUEL claimed" value={formatClaimedFuel(today.claimedFuel)}/>
@@ -131,6 +141,7 @@ export function OverviewStats({ protocol, onSeeProtocol, onSeeMarkets }: {
         <Stat label="MORE burned" value={formatToken(protocol.moreBurnt)}/>
         <Stat label="Pump fund" value={formatEth(protocol.vaultBalance)}/>
       </div>
+      {supplyWarning && <p className="pulse-note" role="status">⚠ {supplyWarning}</p>}
     </>}
     <div className="pulse-links">
       <button type="button" onClick={onSeeProtocol}>Full activity &amp; protocol numbers →</button>

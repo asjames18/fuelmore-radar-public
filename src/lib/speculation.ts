@@ -11,7 +11,17 @@ import { formatUnits } from 'viem'
  * - The 45/25/30 fee split is source-verified via a Sourcify exact match on
  *   the FeeDistributor (not a security audit); the split itself is read from
  *   the deployed contract's behavior, and the percentages are constants here
- *   only because the distributor code fixes them.
+ *   only because the distributor code fixes them. Claim fees route through
+ *   the same distributor (verified _collectClaimFee forwarding).
+ * - Burn behavior is observed, not derived: the only burn pace this module
+ *   trusts is the delta of timestamped burn-counter observations. The
+ *   fee-routing conversion survives only as an explicitly labeled UPPER
+ *   BOUND scenario — spot conversion with no slippage is never presented
+ *   as executed burns, and it never feeds the net-supply trajectory.
+ * - A first-unlock regime change (trailing days show zero claims, today has
+ *   claims) suspends pace trajectories: the pre-unlock pace no longer
+ *   describes the market, so callers show the partial-day observation and an
+ *   honest-state banner instead of a false depletion path.
  * - Mint positions mature on a deterministic schedule from mint terms, but
  *   the FUEL reward per position is NOT fixed at mint time — it grows with
  *   network participation. Scheduled unlock amounts therefore value each
@@ -31,6 +41,57 @@ export type TrailingStats = {
   avgClaimedPerDay: number
   /** Average FUEL per reward claim, in whole tokens. null when no claims were observed. */
   avgClaimSize: number | null
+}
+
+/**
+ * Today's incomplete-day observation, labeled as partial. This is what
+ * actually happened so far today — not a pace, not annualized, and never
+ * silently blended into the trailing averages.
+ */
+export type PartialDayStats = {
+  date: string
+  mints: number
+  claims: number
+  /** FUEL claimed so far today, in whole tokens. */
+  claimedFuel: number
+  /** Average FUEL per claim so far today. null when nothing claimed yet. */
+  avgClaimSize: number | null
+}
+
+export function todayPartialStats(days: ActivityDay[]): PartialDayStats | null {
+  const today = days.at(-1)
+  if (!today) return null
+  const claimed = Number(today.claimedFuel)
+  if (!Number.isFinite(today.mints) || today.mints < 0) return null
+  if (!Number.isFinite(today.claims) || today.claims < 0) return null
+  if (!Number.isFinite(claimed) || claimed < 0) return null
+  return {
+    date: today.date,
+    mints: today.mints,
+    claims: today.claims,
+    claimedFuel: claimed,
+    avgClaimSize: today.claims > 0 ? claimed / today.claims : null,
+  }
+}
+
+export type RegimeState =
+  | { kind: 'normal' }
+  | { kind: 'claim-regime-change'; today: PartialDayStats }
+
+/**
+ * Detect the first-unlock regime change: every complete trailing day shows
+ * zero claims, but today already has claims. The pre-unlock pace (zero claim
+ * inflow) no longer describes the market, and any trajectory built from it —
+ * e.g. burns subtracted from zero inflow, "depleting" the supply — is false.
+ * Callers must not publish pace trajectories in this state; show the
+ * partial-day observation and an honest-state banner instead. Trajectories
+ * resume once complete days with claims are observed.
+ */
+export function detectClaimRegimeChange(days: ActivityDay[], stats: TrailingStats | null): RegimeState {
+  const today = todayPartialStats(days)
+  if (!today || today.claims === 0) return { kind: 'normal' }
+  if (stats !== null && stats.avgClaimsPerDay === 0) return { kind: 'claim-regime-change', today }
+  return { kind: 'normal' }
 }
 
 export function trailingStats(days: ActivityDay[], windowDays?: number): TrailingStats | null {
@@ -167,8 +228,11 @@ export type BurnInputs = {
   fuelBurntNow: bigint
   moreBurntNow: bigint
   avgMintsPerDay: number
+  avgClaimsPerDay: number
   /** Current mint fee in ETH (whole ETH, not wei). */
   mintFeeEth: number
+  /** Current claim fee in ETH (whole ETH, not wei). null = claim fees excluded, caller must label the bound mint-fees-only. */
+  claimFeeEth: number | null
   /** Current token prices in WETH (Dexscreener priceNative). null = token pace unavailable. */
   fuelPriceNative: number | null
   morePriceNative: number | null
@@ -178,39 +242,51 @@ export type BurnInputs = {
 
 export type BurnPoint = {
   date: string
-  /** Cumulative FUEL burned: observed to date + projected at the current pace. null = pace unknown (gap, not zero). */
+  /** Cumulative FUEL burned: observed to date + upper-bound pace. null = pace unknown (gap, not zero). */
   fuel: number | null
-  /** Cumulative MORE burned: observed to date + projected at the current pace. null = pace unknown (gap, not zero). */
+  /** Cumulative MORE burned: observed to date + upper-bound pace. null = pace unknown (gap, not zero). */
   more: number | null
 }
 
 export type BurnPace = {
-  /** ETH per day routed to each burner at the current mint pace. */
+  /** Upper-bound ETH per day routed to each burner at the current mint+claim pace. */
   ethToFuelBurnerPerDay: number
   ethToMoreBurnerPerDay: number
-  /** Estimated tokens burned per day at current native prices. null when the price is unavailable. */
+  /** Upper-bound tokens burned per day at current native prices, assuming spot conversion with no slippage. null when the price is unavailable. */
   fuelPerDay: number | null
   morePerDay: number | null
 }
 
-/** Verified FeeDistributor split: 25% of mint fees buy & burn FUEL, 30% buy & burn MORE. */
+/** Verified FeeDistributor split: 45% MintVault, 25% FUEL burner, 30% MORE burner. */
+export const MINT_VAULT_SHARE = 0.45
 export const FUEL_BURN_SHARE = 0.25
 export const MORE_BURN_SHARE = 0.30
 
 /**
- * Project cumulative burns. The burners receive ETH (a fixed share of each
- * mint fee) and use it to buy and burn tokens, so the daily burn pace is the
- * mint pace × mint fee × share, converted at current native prices. Execution
- * prices, slippage, and participation can all move — this extends today's
- * observable pace, it does not predict it.
+ * Fee-routing UPPER BOUND on burns — not observed burns. The burners receive
+ * ETH (a fixed share of each mint and claim fee, routed through the
+ * FeeDistributor) and use it to buy and burn tokens. This extends the most
+ * ETH that could reach the burners at the current mint+claim pace and fee
+ * levels, converted at current native prices as if every wei bought tokens
+ * at spot with zero slippage, zero gas, and immediate execution.
+ *
+ * That conversion never happens in practice: pool liquidity is shallow, so
+ * the burner's own buys move the price, and execution timing is unknown.
+ * Observed cumulative burns are the ground truth; this scenario only bounds
+ * how fast fee routing alone could add to them. Never present its slope as
+ * executed burns, and never feed it into the net-supply trajectory.
  */
 export function projectBurns(inputs: BurnInputs): { points: BurnPoint[]; pace: BurnPace } | null {
-  const { fuelBurntNow, moreBurntNow, avgMintsPerDay, mintFeeEth, fuelPriceNative, morePriceNative, startDate, horizonDays = 365 } = inputs
+  const { fuelBurntNow, moreBurntNow, avgMintsPerDay, avgClaimsPerDay, mintFeeEth, claimFeeEth, fuelPriceNative, morePriceNative, startDate, horizonDays = 365 } = inputs
   if (fuelBurntNow < 0n || moreBurntNow < 0n) return null
-  if (!Number.isFinite(avgMintsPerDay) || !Number.isFinite(mintFeeEth) || avgMintsPerDay <= 0 || mintFeeEth <= 0) return null
+  if (!Number.isFinite(avgMintsPerDay) || !Number.isFinite(avgClaimsPerDay) || avgMintsPerDay <= 0 || avgClaimsPerDay < 0) return null
+  if (!Number.isFinite(mintFeeEth) || mintFeeEth <= 0) return null
+  if (claimFeeEth !== null && (!Number.isFinite(claimFeeEth) || claimFeeEth < 0)) return null
   const start = Date.parse(`${startDate}T00:00:00Z`)
   if (!Number.isFinite(start) || !Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > 730) return null
-  const ethPerDay = avgMintsPerDay * mintFeeEth
+  // Claim fees route through the same FeeDistributor (verified
+  // _collectClaimFee forwarding), so they belong in the routed-fee bound.
+  const ethPerDay = avgMintsPerDay * mintFeeEth + (claimFeeEth !== null ? avgClaimsPerDay * claimFeeEth : 0)
   const fuelPerDay = fuelPriceNative !== null && fuelPriceNative > 0 ? (ethPerDay * FUEL_BURN_SHARE) / fuelPriceNative : null
   const morePerDay = morePriceNative !== null && morePriceNative > 0 ? (ethPerDay * MORE_BURN_SHARE) / morePriceNative : null
   if (fuelPerDay === null && morePerDay === null) return null
@@ -233,6 +309,38 @@ export function projectBurns(inputs: BurnInputs): { points: BurnPoint[]; pace: B
     points.push({ date, fuel, more })
   }
   return { points, pace }
+}
+
+export type BurnCounterObservation = {
+  /** Cumulative tokens burned, in whole tokens. */
+  fuelBurnt: number
+  moreBurnt: number
+  /** When the counters were read, epoch milliseconds. */
+  observedAt: number
+}
+
+/**
+ * Observed burn pace from timestamped burn-counter observations: the
+ * per-day change in the cumulative counters between the first and last
+ * observation. Needs at least two observations a full day apart; a single
+ * cumulative read (all we have today) yields null — "pace unknown" — never
+ * a fabricated zero and never the fee-routing bound in disguise.
+ */
+export function observedBurnPace(observations: BurnCounterObservation[]): { fuelPerDay: number; morePerDay: number } | null {
+  const valid = observations.filter(o =>
+    Number.isFinite(o.fuelBurnt) && o.fuelBurnt >= 0 &&
+    Number.isFinite(o.moreBurnt) && o.moreBurnt >= 0 &&
+    Number.isFinite(o.observedAt) && o.observedAt > 0,
+  ).sort((a, b) => a.observedAt - b.observedAt)
+  if (valid.length < 2) return null
+  const first = valid[0]
+  const last = valid[valid.length - 1]
+  const days = (last.observedAt - first.observedAt) / 86400000
+  if (!(days >= 1)) return null
+  const fuelPerDay = (last.fuelBurnt - first.fuelBurnt) / days
+  const morePerDay = (last.moreBurnt - first.moreBurnt) / days
+  if (!Number.isFinite(fuelPerDay) || !Number.isFinite(morePerDay) || fuelPerDay < 0 || morePerDay < 0) return null
+  return { fuelPerDay, morePerDay }
 }
 
 export type FutureSupplies = {
@@ -424,4 +532,34 @@ export function formatUsd(value: number | null): string {
   if (abs >= 0.01) return `$${value.toFixed(4)}`
   // Tiny prices (e.g. $0.00003823): two significant digits, never "$0.0000".
   return `$${value.toPrecision(2)}`
+}
+
+export type SupplyVelocityInput = {
+  /** Unix seconds: when the protocol snapshot (totalSupply read) was taken. */
+  supplyObservedAt: number | null
+  /** Unix seconds: how far the activity collector has scanned. */
+  activityThroughAt: number | null
+  /** Reward claims so far on the latest (incomplete) day. */
+  partialDayClaims: number
+}
+
+/**
+ * Velocity-aware supply freshness (audit E8). During claim floods supply
+ * moves faster than the snapshot cadence, so a protocol snapshot that
+ * predates today's claim flow is flagged as potentially lagging instead of
+ * being presented as current. Returns a human-readable warning, or null
+ * when there is nothing to warn about. Missing inputs are gaps, never
+ * zeros — null in, null out.
+ */
+export function supplyVelocityWarning(input: SupplyVelocityInput): string | null {
+  const { supplyObservedAt, activityThroughAt, partialDayClaims } = input
+  if (supplyObservedAt == null || activityThroughAt == null) return null
+  if (!Number.isFinite(supplyObservedAt) || !Number.isFinite(activityThroughAt)) return null
+  if (partialDayClaims <= 0) return null
+  const lagSec = activityThroughAt - supplyObservedAt
+  // A snapshot within 5 minutes of the claim flow is fresh enough; the
+  // audit flagged a 12-minute-old snapshot presented as current.
+  if (lagSec < 300) return null
+  const lagMin = Math.round(lagSec / 60)
+  return `Supply is moving quickly — the protocol snapshot predates ~${lagMin} minutes of today's claim flow, so the figure above may lag actual supply. Claims push FUEL supply up; burns offset only a fraction of it.`
 }

@@ -43,6 +43,17 @@ export const EXPECTED_NETWORK_ID = 'robinhood'
 
 export const SOURCE_ORDER = ['dexscreener', 'geckoterminal', 'dexpaprika']
 
+/**
+ * Freshness gate (E1): an upstream quote timestamped older than this is
+ * rejected and the collector fails over to the next source. Without it, a
+ * stale DexPaprika read (~2h old, pre-crash price) was recorded as if it
+ * were current, and the site disagreed with itself about FUEL's price by
+ * ~1,300x. Sources that do not publish a quote timestamp are exempt from
+ * the gate (they cannot be gated) but still face the deviation guard in
+ * market-collect.mjs.
+ */
+export const MAX_QUOTE_AGE_SECONDS = 30 * 60
+
 const MAX_FETCH_ATTEMPTS = 3
 const RETRY_BASE_DELAY_MS = 1_000
 const RETRY_MAX_DELAY_MS = 30_000
@@ -173,6 +184,9 @@ export function validateDexPair(payload, pairKey, pairAddress, tokenAddress) {
   return {
     priceUsd: pair.priceUsd != null ? asFiniteNumber(pair.priceUsd) : null,
     liquidityUsd: pair.liquidity?.usd != null ? asFiniteNumber(pair.liquidity.usd) : null,
+    // Dexscreener publishes no per-quote timestamp, so the freshness gate
+    // cannot apply here; the deviation guard in market-collect.mjs still does.
+    observedAt: null,
   }
 }
 
@@ -202,6 +216,9 @@ export function validateGeckoPool(payload, pairKey, pairAddress, tokenAddress) {
   return {
     priceUsd: pool.attributes.base_token_price_usd != null ? asFiniteNumber(pool.attributes.base_token_price_usd) : null,
     liquidityUsd: pool.attributes.reserve_in_usd != null ? asFiniteNumber(pool.attributes.reserve_in_usd) : null,
+    // GeckoTerminal publishes no per-quote timestamp; exempt from the
+    // freshness gate, still subject to the deviation guard.
+    observedAt: null,
   }
 }
 
@@ -236,7 +253,42 @@ export function validateDexPaprikaPool(payload, pairKey, pairAddress, tokenAddre
   return {
     priceUsd: payload.last_price_usd != null ? asFiniteNumber(payload.last_price_usd) : null,
     liquidityUsd: payload.liquidity_usd != null ? asFiniteNumber(payload.liquidity_usd) : null,
+    // DexPaprika's price_time is the upstream quote timestamp the freshness
+    // gate runs on. Missing or unparsable means "no timestamp" (null), which
+    // exempts the quote from the gate rather than failing it.
+    observedAt: parseQuoteTime(payload.price_time),
   }
+}
+
+/** Parse an upstream quote timestamp (ISO string or epoch seconds) to epoch seconds. */
+export function parseQuoteTime(value) {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    // Heuristic: values below 1e12 are seconds, at/above are milliseconds.
+    return Math.floor(value >= 1e12 ? value / 1000 : value)
+  }
+  const ms = Date.parse(String(value))
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null
+}
+
+/**
+ * Freshness gate: reject a quote whose upstream timestamp is older than
+ * MAX_QUOTE_AGE_SECONDS so a stale read never becomes a stored history
+ * point. A null observedAt (source publishes no quote time) passes — the
+ * gate only judges timestamps the source actually provides.
+ */
+export function checkQuoteFreshness(result, pairKey, sourceName, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const observedAt = result?.observedAt ?? null
+  if (observedAt === null) return result
+  if (nowSeconds - observedAt > MAX_QUOTE_AGE_SECONDS) {
+    throw validationFailure(
+      pairKey,
+      'quote-freshness',
+      `quote newer than ${MAX_QUOTE_AGE_SECONDS}s`,
+      `${sourceName} quote from ${new Date(observedAt * 1000).toISOString()}`,
+    )
+  }
+  return result
 }
 
 async function fetchGeckoPairSnapshot({ pairKey, pairAddress, tokenAddress, fetchImpl, sleep }) {

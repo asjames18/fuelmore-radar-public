@@ -18,9 +18,9 @@ export function Guide() {
         </p>
         <p>
           There is no wallet connection and no trading here. To look up a wallet you paste
-          its address — that is the only thing we ever ask for. Numbers refresh about
-          every 15 minutes, and every value carries its own timestamp so you can see how
-          fresh it is. Nothing on this site is financial advice.
+          its address — that is the only thing we ever ask for. Numbers are scheduled to
+          refresh about every 15 minutes, and every value carries its own timestamp so you
+          can see how fresh it is. Nothing on this site is financial advice.
         </p>
       </div>
     </section>
@@ -33,11 +33,13 @@ export function Guide() {
       <div className="guide-body">
         <p>
           Token cards show live price, liquidity, and 24-hour change for FUEL and MORE.
-          Daily pulse tracks minting and claiming wallets today and over the last
-          seven days, and upcoming maturities lists MORE vesting in the next few
-          days. A countdown at the top of the panel ticks down to the first date
-          any FUEL rewards can unlock — once matured positions are waiting it
-          flips to a "claims are live" state instead. When a value is unavailable
+          Daily pulse tracks mint and claim transaction senders — unique wallets that
+          submitted mints or claims, not verified people — for today only, plus mint
+          starts, reward claims, and FUEL claimed today and over the last seven days.
+          Upcoming maturities lists FUEL mint positions maturing in the next few
+          days. A banner at the top of the panel tracks the first reward unlock —
+          with matured positions waiting it shows "First rewards are live" instead
+          of a countdown. When a value is unavailable
           we show it as missing instead of guessing.
         </p>
         <p>
@@ -57,6 +59,11 @@ export function Guide() {
           Price alone is not executable liquidity. The pool table shows market cap,
           24-hour buys and sells, and the pool address behind each price, with links
           out to Dexscreener. Top holders shows how concentrated each token is.
+          The comparison chart draws on the radar's own market history — recorded
+          every 15 minutes with failover across Dexscreener, GeckoTerminal, and
+          DexPaprika, rejecting stale quotes — plus fresher points your browser
+          adds between syncs. Each point names its source, so the chart and the
+          market cards always tell the same story.
         </p>
         <p>Check here before assuming you can move size without moving the price.</p>
       </div>
@@ -128,16 +135,28 @@ export function Guide() {
       <div className="guide-body">
         <p>
           Speculation takes what is currently happening on-chain — mint pace,
-          claim pace, burn pace, supplies, market caps, pool liquidity — and
+          claim pace, observed burns, supplies, market caps, pool liquidity — and
           projects it forward 90, 180, or 365 days. The headline path is the
           <strong> net-supply trajectory</strong>: today's FUEL supply plus
-          (rewards claimed per day minus FUEL burned per day), extended flat.
-          A second line reruns the same math on the most recent 7 days, so the
-          gap between the lines shows whether activity is accelerating or
-          cooling. A dotted overlay adds potential claims from the deterministic
-          maturity schedule. A supply cannot go negative: if the pace would
-          drive the trajectory to zero, the line stops there and says so —
-          past that point the flat-pace assumption breaks.
+          (rewards claimed per day minus FUEL burned per day at the <i>observed</i> burn
+          pace), extended flat. A second line reruns the same math on the most recent
+          7 days, so the gap between the lines shows whether activity is accelerating
+          or cooling. A dotted overlay adds potential claims from the deterministic
+          maturity schedule, valued at the observed average claim size. A supply
+          cannot go negative: if the pace would drive the trajectory to zero, the
+          line stops there and says so — past that point the flat-pace assumption breaks.
+        </p>
+        <p>
+          Burns are shown as observed first: cumulative FUEL and MORE burned and the
+          ETH spent doing it. A measured burn pace appears only when timestamped
+          counter history exists; otherwise the page says so instead of inventing one.
+          Separately, a labeled <strong>fee-routing upper bound</strong> shows the most
+          ETH that mint and claim fees could send the burners at the trailing pace
+          (45% MintVault / 25% FUEL burner / 30% MORE burner), converted at current
+          pool prices as if at spot with no slippage — a ceiling on fee-driven
+          buying, never burns that happened. On the first unlock day, when the
+          pre-unlock pace stops describing the market, trajectories are suspended
+          and the page shows the day's observed claims with an honest-state banner instead.
         </p>
         <p>
           <em>Implied price</em> is pure arithmetic — today's market-cap

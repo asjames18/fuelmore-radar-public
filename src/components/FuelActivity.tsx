@@ -60,12 +60,12 @@ export function FuelActivity() {
     {state.progress && <p className="activity-message" role="status">{state.progress}{report ? ' · Previous scan remains visible.' : ''}</p>}
     {report && today ? <>
       <div className="activity-totals">
-        <div><span>Minting wallets · {today.date}</span><strong>{today.mintWallets.toLocaleString()}</strong></div>
-        <div><span>Claiming wallets · {today.date}</span><strong>{today.claimWallets.toLocaleString()}</strong></div>
+        <div><span>Mint senders · {today.date}</span><strong>{today.mintWallets.toLocaleString()}</strong></div>
+        <div><span>Claim senders · {today.date}</span><strong>{today.claimWallets.toLocaleString()}</strong></div>
         <div><span>Mint starts / claims · {today.date}</span><strong>{today.mints.toLocaleString()} <small>/ {today.claims.toLocaleString()}</small></strong></div>
       </div>
       <p className="activity-note">{old ? 'Delayed data · ' : ''}Latest day is incomplete. Scanned through {new Date(report.throughTimestamp * 1000).toLocaleString('en-US', { timeZone: 'UTC' })} UTC · block {report.throughBlock}{report.index?.mode ? ` · ${report.index.mode} index` : ''}{typeof report.index?.recordCount === 'number' ? ` · ${report.index.recordCount.toLocaleString()} events` : ''}.</p>
-      <div className="activity-chart" role="img" aria-label={`Daily FUEL ${wallets ? 'unique minting and claiming wallets' : 'mint starts and reward claims'}. Exact values appear in the table below.`}>
+      <div className="activity-chart" role="img" aria-label={`Daily FUEL ${wallets ? 'unique mint and claim transaction senders' : 'mint starts and reward claims'}. Exact values appear in the table below.`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={report.days} margin={{ top: 10, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#173321" vertical={false}/>
@@ -73,14 +73,14 @@ export function FuelActivity() {
             <YAxis allowDecimals={false} stroke="#82998a" tick={{ fontSize: 11 }} width={45}/>
             <Tooltip contentStyle={{ background: '#071009', border: '1px solid #245c34', color: '#e1f5e7' }}/>
             <Legend/>
-            <Bar dataKey={wallets ? 'mintWallets' : 'mints'} name={wallets ? 'Minting wallets' : 'Mint starts'} fill="#36ff6a" radius={[3, 3, 0, 0]}/>
-            <Bar dataKey={wallets ? 'claimWallets' : 'claims'} name={wallets ? 'Claiming wallets' : 'Reward claims'} fill="#66b6ff" radius={[3, 3, 0, 0]}/>
+            <Bar dataKey={wallets ? 'mintWallets' : 'mints'} name={wallets ? 'Mint senders' : 'Mint starts'} fill="#36ff6a" radius={[3, 3, 0, 0]}/>
+            <Bar dataKey={wallets ? 'claimWallets' : 'claims'} name={wallets ? 'Claim senders' : 'Reward claims'} fill="#66b6ff" radius={[3, 3, 0, 0]}/>
           </BarChart>
         </ResponsiveContainer>
       </div>
       <div className="activity-table-wrap"><table className="daily-activity-table">
         <caption>FUEL daily mint and claim activity (UTC)</caption>
-        <thead><tr><th scope="col">Day</th><th scope="col">Minting wallets</th><th scope="col">Claiming wallets</th><th scope="col">Mint starts</th><th scope="col">Claims</th><th scope="col">FUEL claimed</th></tr></thead>
+        <thead><tr><th scope="col">Day</th><th scope="col">Mint senders</th><th scope="col">Claim senders</th><th scope="col">Mint starts</th><th scope="col">Claims</th><th scope="col">FUEL claimed</th></tr></thead>
         <tbody>{[...report.days].reverse().map(day => <tr key={day.date}><th scope="row">{day.date}{day === today ? ' *' : ''}</th><td>{day.mintWallets.toLocaleString()}</td><td>{day.claimWallets.toLocaleString()}</td><td>{day.mints.toLocaleString()}</td><td>{day.claims.toLocaleString()}</td><td title={day.claimedFuel}>{formatClaimedFuel(day.claimedFuel)}</td></tr>)}</tbody>
       </table></div>
     </> : !state.error && <div className="activity-empty">{report ? 'Activity report has no daily rows for this coverage window.' : 'Building the daily comparison from on-chain events. Counts appear after the full scan completes.'}</div>}

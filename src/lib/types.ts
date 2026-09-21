@@ -107,6 +107,13 @@ export type HistoryPoint = {
   morePrice: number | null
   fuelLiquidity: number | null
   moreLiquidity: number | null
+  // Optional server-side attribution (market-history v2): which upstream
+  // source each side's quote came from, plus the upstream quote timestamp
+  // when the source publishes one. Absent for browser-recorded points.
+  fuelSource?: string | null
+  moreSource?: string | null
+  fuelObservedAt?: number | null
+  moreObservedAt?: number | null
 }
 
 export type WalletPosition = {

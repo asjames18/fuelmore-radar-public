@@ -8,7 +8,7 @@ import type { MaturityReport } from './MaturityTimeline'
  * the real moment the first FUEL rewards unlock. Falls back to 00:00 UTC on
  * the first date with scheduled maturities when the snapshot predates the
  * exact timestamp field. When matured positions are already waiting
- * (`due > 0`), it flips to a "claims are live" state instead of a timer.
+ * (`due > 0`), it flips to a "First rewards are live" state instead of a timer.
  * Quiet (renders nothing) when the maturity schedule is unavailable, so a
  * feed hiccup never blanks Overview.
  */

@@ -5,7 +5,7 @@ import App from './App'
 import type { RadarData } from './lib/types'
 const radarState = vi.hoisted(() => ({ data: null as RadarData | null, history: [] as unknown[], status: 'loading', error: null as string | null, refresh: vi.fn(), refreshing: false }))
 vi.mock('./useRadarData', () => ({useRadarData:()=>radarState}))
-vi.mock('./lib/planner', () => ({fetchMintFee: () => Promise.resolve({ mintFeeEth: null, gasPrice: null })}))
+vi.mock('./lib/planner', () => ({fetchMintFee: () => Promise.resolve({ mintFeeEth: null, gasPrice: null }), fetchFeePair: () => Promise.resolve({ mintFeeEth: null, claimFeeEth: null, gasPrice: null, at: null, error: 'mocked' })}))
 afterEach(cleanup)
 it('public nav keeps Planner as a coming-soon page', () => {
  render(<App/> )
@@ -36,7 +36,7 @@ it('renders exactly one mobile donation section and one footer donation chip', (
 it('keeps public sync automatic with only a timestamp and cadence', () => {
  render(<App/>)
  expect(screen.getByText(/Last sync:/)).toBeTruthy()
- expect(screen.getByText('Updates every 15 minutes')).toBeTruthy()
+ expect(screen.getByText('Scheduled every 15 minutes')).toBeTruthy()
  expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull()
  expect(screen.queryByText('SYNCING')).toBeNull()
  expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
@@ -95,10 +95,10 @@ it('speculation view renders forward projections from live inputs, degrading gra
  expect(await screen.findByText('Future supply · FUEL')).toBeTruthy()
  // The supply trajectory degrades to claims-only: recharts splits legend
  // labels across SVG nodes, so assert the plain-text degradation note.
- expect(screen.getByText(/Burns are excluded until the mint-fee read succeeds/)).toBeTruthy()
+ expect(screen.getByText(/observed burn pace is currently unavailable/)).toBeTruthy()
  expect(screen.getByText('The math behind the page')).toBeTruthy()
  // The burn section honestly reports its missing input with a retry affordance.
- expect(screen.getByText(/Burn projection unavailable/)).toBeTruthy()
+ expect(screen.getByText(/Burn upper bound unavailable/)).toBeTruthy()
  // MORE supply stays a labeled gap while the supply read is null — never zero.
  expect(screen.getByText(/MORE supply projection unavailable/)).toBeTruthy()
  vi.unstubAllGlobals()

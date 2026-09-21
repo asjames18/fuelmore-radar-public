@@ -10,6 +10,11 @@ type Metric = 'price' | 'liquidity'
 type View = 'candles' | 'usd' | 'percent'
 const utcTick = (value: number) => new Date(value).toISOString().slice(5,16).replace('T',' ')
 const percent = (value: number) => `${value>0?'+':''}${value.toFixed(2)}%`
+/** Human-readable provenance for one side of a history point. */
+function sideAttribution(source: string | null | undefined, observedAt: number | null | undefined, at: number): string {
+  const when = new Date(observedAt ?? at).toISOString().slice(11, 16)
+  return source ? `via ${source} · quote ${when} UTC` : `recorded in this browser · ${when} UTC`
+}
 const colors = {FUEL:'#36ff6a',MORE:'#63b3ff'}
 // Parameters from Dexscreener's official "Embed this chart" dialog. Never synthesize OHLC from snapshots.
 const candleUrl = (token: 'FUEL'|'MORE') => `${DEXSCREENER}/${PAIRS[token==='FUEL'?'fuel':'more']}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartDefaultOnMobile=1&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=60`
@@ -27,6 +32,15 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
   const series = symbol === 'Compare' ? ['FUEL','MORE'] as const : [symbol]
   const keyFor = (token: string) => `${token==='FUEL'?'fuel':'more'}${normalized?'Change':isPrice?'Price':'Liquidity'}`
   const enough = points.length>1
+  // Visible per-point provenance: the latest visible observation names the
+  // upstream source (and its quote time) when the collector recorded it, or
+  // says it was recorded locally. Cards and chart read the same series, so
+  // they cannot disagree.
+  const latestAttribution = (() => {
+    const p = points.at(-1)
+    if (!enough || !p) return ''
+    return `Latest · FUEL ${sideAttribution(p.fuelSource, p.fuelObservedAt, p.at)} · MORE ${sideAttribution(p.moreSource, p.moreObservedAt, p.at)}.`
+  })()
   const chartTracked = useRef(false)
   useEffect(() => {
     if (chartTracked.current) return
@@ -74,7 +88,7 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="chart-note">Saved market observations · drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}History is saved in this browser.</p>
+      <p className="chart-note">Market observations · the radar's collector records a point every 15 minutes (Dexscreener → GeckoTerminal → DexPaprika failover, stale quotes rejected); this browser adds fresher points between syncs. Drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}{latestAttribution}</p>
     </>}
   </section>
 }

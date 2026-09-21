@@ -43,6 +43,6 @@ export function MorePositions({ address }: { address: string }) {
       </> : <strong>Unavailable — stake read or owner check failed</strong>}</div></article>)}
       {page.nextOffset !== null && <div className="calendar-controls"><button disabled={busy} onClick={() => void read(true)}>Load more MORE stakes</button></div>}
     </>}
-    <p>Dates and status are contract records; rewards, penalties and claim eligibility are not calculated. Due styling follows the scheduled end timestamp only. Contract and interface mapping: <a href="https://app.moretokens.com/" target="_blank" rel="noreferrer">official MORE app</a> · <a href={`https://robin.etherscan.io/address/${MORE_STAKING}`} target="_blank" rel="noreferrer">staking contract</a>. Source-code audit remains outstanding.</p>
+    <p>Dates and status are contract records; rewards, penalties and claim eligibility are not calculated. Due styling follows the scheduled end timestamp only. Contract and interface mapping: <a href="https://app.moretokens.com/" target="_blank" rel="noreferrer">official MORE app</a> · <a href={`https://robin.etherscan.io/address/${MORE_STAKING}`} target="_blank" rel="noreferrer">staking contract</a>. Source-code verification remains outstanding — this is metadata, not a security audit.</p>
   </section>
 }
