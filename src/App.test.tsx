@@ -53,15 +53,11 @@ it('overview shows number panels instead of the comparison chart, which lives in
  expect(screen.getByText('FUEL / MORE comparison')).toBeTruthy()
  radarState.data = null
 })
-it('speculation view renders assumptions and official project links', () => {
- radarState.data = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: { totalSupply: 1000000n, moreTotalSupply: 500000n, fuelBurnt: 50000n, moreBurnt: 1000n }, updatedAt: Date.now(), partial: false } as unknown as RadarData
+it('speculation view renders a coming-soon placeholder', () => {
  render(<App/>)
  fireEvent.click(screen.getAllByRole('button',{name:'Speculation'})[0])
- expect(screen.getByText('What these numbers assume')).toBeTruthy()
- expect(screen.getByText('Supply · now and next 12 months')).toBeTruthy()
- expect(screen.getByRole('link',{name:/FUEL site/}).getAttribute('href')).toBe('https://fuelmoretokens.com/')
- expect(screen.getByRole('link',{name:/FUEL app/}).getAttribute('href')).toBe('https://app.fuelmoretokens.com/')
- expect(screen.getByRole('link',{name:/MORE site/}).getAttribute('href')).toBe('https://www.moretokens.com/')
- expect(screen.getByRole('link',{name:/MORE app/}).getAttribute('href')).toBe('https://app.moretokens.com/')
+ expect(screen.getByLabelText('Speculation coming soon')).toBeTruthy()
+ expect(screen.getByText('Coming soon')).toBeTruthy()
+ expect(screen.queryByText('What these numbers assume')).toBeNull()
  radarState.data = null
 })

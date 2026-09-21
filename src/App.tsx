@@ -26,7 +26,7 @@ import { ActivityTable } from './components/ActivityTable'
 import { ContractRegistry } from './components/ContractRegistry'
 import { MarketCard } from './components/MarketCard'
 import { MarketChart } from './components/MarketChart'
-import { SpeculationView } from './components/SpeculationView'
+import { SpeculationComingSoon } from './components/SpeculationComingSoon'
 import { OverviewStats } from './components/OverviewStats'
 import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
@@ -57,7 +57,7 @@ const SUBTITLES: Record<View, string> = {
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
   Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
-  Speculation: 'Supply, burn, price, and liquidity scenarios from live on-chain numbers — scenarios, not predictions.',
+  Speculation: 'Coming soon — forward-looking price, supply, burn, and liquidity projections.',
   Contracts: 'Verified contract addresses — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
   Planner: 'Coming soon — prediction plans from current and future numbers.',
@@ -202,7 +202,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           </>}
           {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
-          {view === 'Speculation' && <SpeculationView data={data}/>}
+          {view === 'Speculation' && <SpeculationComingSoon/>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
       </main>

@@ -120,24 +120,20 @@ export function Guide() {
 
     <section className="panel" aria-labelledby="guide-speculation">
       <div className="panel-heading"><div>
-        <h2 id="guide-speculation">Speculation — what today's pace implies</h2>
-        <p>Supply, burn, price, and liquidity scenarios from live numbers</p>
+        <h2 id="guide-speculation">Speculation — coming soon</h2>
+        <p>Forward-looking price, supply, burn, and liquidity projections</p>
       </div></div>
       <div className="guide-body">
         <p>
-          Speculation extends numbers you can verify right now: current supply
-          from <code>totalSupply()</code>, burns to date from the burn
-          controllers, the known mint-maturity schedule, the trailing mint and
-          claim pace, the on-chain mint fee, the verified 25% / 30% fee
-          split, plus the current market-cap and pool-liquidity snapshots.
-          Every assumption is listed on the page.
+          Speculation is a future build: projections of future price, supply,
+          burns, and liquidity built with predictive math from what is
+          currently happening on-chain — current state projected into future
+          state, updated as new numbers come in.
         </p>
         <p>
-          These are scenarios — "if today's on-chain pace continued" — not
-          predictions, not price calls, and not advice. Price lines are pure
-          arithmetic (today's market cap ÷ projected supply); real prices are
-          set by markets this radar does not model. The individual Planner
-          stays on the drawing board until its math can be trusted.
+          That math isn't figured out yet, so the page stays on the drawing
+          board until the projections are real and trustworthy. It will appear
+          here when it is.
         </p>
       </div>
     </section>
