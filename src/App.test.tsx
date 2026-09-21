@@ -25,6 +25,14 @@ it('guide page explains every section in plain language', () => {
  expect(screen.getByText('What the Radar is')).toBeTruthy()
  expect(screen.getByText(/Reading the numbers like a local/)).toBeTruthy()
 })
+it('renders exactly one mobile donation section and one footer donation chip', () => {
+ const { container } = render(<App/>)
+ expect(container.querySelectorAll('.donate-mobile').length).toBe(1)
+ const footer = container.querySelector('footer') as HTMLElement | null
+ expect(footer).toBeTruthy()
+ expect(within(footer as HTMLElement).getAllByRole('button', { name: /copy donation address/i }).length).toBe(1)
+ expect(screen.getAllByRole('button', { name: /copy donation address/i }).length).toBe(2)
+})
 it('keeps public sync automatic with only a timestamp and cadence', () => {
  render(<App/>)
  expect(screen.getByText(/Last sync:/)).toBeTruthy()
