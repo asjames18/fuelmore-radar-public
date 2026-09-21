@@ -56,7 +56,7 @@
     "src/lib/format.test.ts": "d33e0ef520484d25ff1dc83a23a00c6b62c624e3b2ed7f1b748c026a7222ffac",
     "src/lib/format.ts": "4170e3b1c859d85083cff96cb77df0496b77b3625009b19a696dac490b0cc4fc",
     "src/lib/history.test.ts": "1b78bb9f355d1b9ef3c3bc4ace08687b70370a8bd962595eddbbb94bafb1b585",
-    "src/lib/history.ts": "cf6c87dd498b959690ac1adcc372109b40c07ca5b4c45ece7c2eddb42c16f74f",
+    "src/lib/history.ts": "f7d503a7fd5f5a342a3754579472e1458f1cc5050d4aa4541c3323a79ac036fe",
     "src/lib/marketComparison.test.ts": "f3dcbf74abbd34c7f02081c61d0bc6e0dd8f6de938a181e85b9caf4e8bd42290",
     "src/lib/marketComparison.ts": "0233f990683efecb1f638398eda1753af2269df8dea3bf77283a4d18131d8b01",
     "src/lib/maturity.test.ts": "d61f6dde6d08692da50361b71539df7a67ffb626444faa183130893daa9c76b5",

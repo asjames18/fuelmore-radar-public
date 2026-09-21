@@ -81,7 +81,7 @@ function isRemotePoint(value: unknown): value is RemotePoint {
   const p = value as Record<string, unknown>
   const num = (v: unknown) => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0)
   const src = (v: unknown) => v === undefined || v === null || typeof v === 'string'
-  const ts = (v: unknown) => v === undefined || v === null || (Number.isInteger(v) && v > 0)
+  const ts = (v: unknown) => v === undefined || v === null || (typeof v === 'number' && Number.isInteger(v) && v > 0)
   return typeof p.t === 'number' && Number.isFinite(p.t) && p.t > 0
     && num(p.fuelPrice) && num(p.morePrice) && num(p.fuelLiquidity) && num(p.moreLiquidity)
     && src(p.fuelSource) && src(p.moreSource) && ts(p.fuelObservedAt) && ts(p.moreObservedAt)
