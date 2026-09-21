@@ -2,6 +2,11 @@
   "name": "fuelmore-radar-public",
   "main": "server/worker.mjs",
   "compatibility_date": "2026-09-15",
+  "triggers": {
+    "crons": [
+      "*/15 * * * *"
+    ]
+  },
   "ratelimits": [
     {
       "name": "RPC_RATE_LIMITER",

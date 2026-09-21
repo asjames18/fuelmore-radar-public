@@ -6,6 +6,7 @@ import { handleCockpitRequest } from './cockpit-cache.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
+import { checkPipelineFreshness } from './watchdog.mjs'
 
 const rpcCache = new Map()
 const rpcBudget = createRpcBudget()
@@ -247,6 +248,9 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runMarketSnapshot(env))
+    // Force a GitHub publisher run when the activity pipeline has gone quiet.
+    // This never throws and never blocks the market snapshot above.
+    ctx.waitUntil(checkPipelineFreshness(env).catch(() => null))
   },
 
 }

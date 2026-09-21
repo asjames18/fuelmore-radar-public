@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "version": "0.1.4",
   "files": {
-    "src/App.test.tsx": "cfa2886114217b3843c2d950cd8ca5b909dba30796b91ddf2f510c0a03248c13",
-    "src/App.tsx": "c8430c6b605b5a32c53292624c9263fade498c22cdb6cad5999b4a346ef83642",
+    "src/App.test.tsx": "cede3ae49d69bccedebf9dcedbf4628dc3b9eea5273c053f800a5eace8c10260",
+    "src/App.tsx": "7cfa5e3f94ddfc39a17436e9304ff4fa658f0a4c36ba1d98faeb52a7d7b4db9c",
     "src/components/ActivityTable.test.tsx": "31cefab6af9e2b4ce8d180537cb3f4ec81506831c9781b86c62617b138325a45",
     "src/components/ActivityTable.tsx": "1fbe91bdc45a74ce37cf458c6dc3641dc7bd1503a4c7d98e45a031fb08e7735b",
     "src/components/CockpitView.tsx": "5e0adadae163c2566185d4b97e727bc8d8b4a5648f2716edab3ed12468e37611",
@@ -20,6 +20,8 @@
     "src/components/MarketChart.tsx": "907f0dcfff556386317d6f0579c3ef2c86208cbc4c1de303faff44b92183d5b6",
     "src/components/MaturityTimeline.tsx": "3d6125b9df865edd241d118ea6e17274a1afa3ea6d05684f776109835aebe737",
     "src/components/MorePositions.tsx": "6a5531f7f4f103cef432397506ca1be0e074e8839592eab6b995abd49bd230a3",
+    "src/components/OverviewStats.test.tsx": "942d2837e0183bf94fd93fd6b706896340cba80e298c0677e776299097de3183",
+    "src/components/OverviewStats.tsx": "3b5a76be527a1bf68d13727186d204d63b97f4137845566b588856f6e9781ebb",
     "src/components/PlannerComingSoon.tsx": "6efc37843580deedca9702477541829ea29256aede45354374edd893494cddd7",
     "src/components/PositionLookup.test.tsx": "012805b4a994e565c84d6adb6344cf02ba67875b18b25c2c30cfe738a442c9d7",
     "src/components/PositionLookup.tsx": "9fd5529c07dea63fff34caaf139f0675e815d3c1e1ae23e991ff22b69b7aa575",
@@ -70,7 +72,7 @@
     "src/lib/wallet.ts": "4459f8592692a3353b65f016d5f195c17ce54f8ce8549208654a76e33ba8ace9",
     "src/lib/watchlist.test.ts": "d6527e62ad672d6e7f66b1aaaa33a4a5740dd7b046e75bf00a0e5c81bb461c27",
     "src/lib/watchlist.ts": "590c2f506e3fba90f93f657acfdbf6f2ea4242049e4ff0d45c5ac94f65a63225",
-    "src/styles.css": "7954615524696962e523ac5afbe4a96fb7c21f0c8f676e0d6d792cb4c4e27a20",
+    "src/styles.css": "3c24a9c355d5f69afdda769e16ae104e207bd838293581617b274152c1dd66ba",
     "src/useRadarData.test.tsx": "f8e8178e4f6ba38cc35a1951a49d6abfd529caf094c5ca2cfb0d615d9a498a6a",
     "src/useRadarData.ts": "23725cd491eac092d11b6fe21256bf661d8e6c6313521935fd156e8f33e79663",
     "src/vite-env.d.ts": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5",
@@ -104,7 +106,9 @@
     "server/rpc-probe.test.mjs": "ee951a90e8859fbadfe336e2514922d42a0fe1cb647e0ac1c4d961bb4f704f44",
     "server/scan-ranges.mjs": "7956d2e625b3609e459b43e79bf0c7768309268bec87f74d00f58ce3205b708b",
     "server/scan-ranges.test.mjs": "d4d1ed40933f2245afaa3185f3b71bfae2d98206622f035e583024dea8638208",
-    "server/worker.mjs": "6abc3321c9e9c33e8e534b76f8d985619bc20b04e7d8c24aa349c256723db574",
+    "server/watchdog.mjs": "32e9ed203560b71e87a696192b8ace96da67a26859d0e663fc7e9418b8acbf67",
+    "server/watchdog.test.mjs": "c7f9f8e469d56bf882a1335407015de250f7982b73307342dc34ab5e2f74fa33",
+    "server/worker.mjs": "69289512d2a981349d000308469c7a0243fc90280dae897e79ea3d47b9dae905",
     "server/worker.test.mjs": "dce8b9fd0dc95ebd45d36323583be0c4bd83b6e4f8a69c5921052366256712fa",
     "docs/provenance/CONTRACT_PROVENANCE.md": "51be1c62c0dcd83a4bfeb898281e22be008d3fd41a6e44fce79b53f26a270681",
     "docs/provenance/REFERENCE_CROSSCHECK.md": "1fa747dc10f4c993b4724a6f99032321530bc09d4f988c6dc74ed566535b01b5",
@@ -148,11 +152,11 @@
     "README.md": "46540ccca7522cc9a81ec1ccff5a5774bfb3e9805fe4b66046413a8b91407f43",
     "LICENSE": "f1ccd986c1e166b5139726711ae71abcdee7bfa3477a7b6d9387508c4def1d8f",
     "THIRD_PARTY_NOTICES.md": "7189de76b9ae587641883cb275699d033935114d339c836611e5f82fb1b33c78",
-    "package.json": "1bdfb6e02313e1e9e63bed1a40f6ef5d6926434a9c63f1968d6a226406a25264",
+    "package.json": "b975e74025cf07d6db01fa77cd2b12513faa064b75c62182a218d9b122b8ce63",
     "public/third-party-licenses.txt": "6369d171001cf0be2a4672c620c91d2a1c612b91a7f1cb8e8256f9ad7b8a7b2c",
     ".gitignore": "3453ccefd0541a88ddd24d91a032bbecefad0847e8b4f956c29b7535b8a74820",
     "vite.config.ts": "1c5e2029123360fdefac1cd3df024ae76bf91687b8670098c235e91455462baa",
     ".github/workflows/ci.yml": "3ef2266048453e4438926a33a93afae2ba101a95d2eb476b015e6fa500a97557",
-    "wrangler.jsonc": "e764f3d7ed5a9e31f9ccd90627662796dda63ac9bf964cd4283a7c6aca41b01e"
+    "wrangler.jsonc": "38d71e813e0306e5b9cfb93a0effd9296b3490a7f4410e068d36a67a7c3227a8"
   }
 }

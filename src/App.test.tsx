@@ -43,3 +43,12 @@ it('overview hub shows one card per radar section and navigates', () => {
  expect(screen.getByText('Wallet position lookup')).toBeTruthy()
  radarState.data = null
 })
+it('overview shows number panels instead of the comparison chart, which lives in Markets', () => {
+ radarState.data = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: Date.now(), partial: false } as unknown as RadarData
+ render(<App/>)
+ expect(screen.getByText('Daily pulse')).toBeTruthy()
+ expect(screen.queryByText('FUEL / MORE comparison')).toBeNull()
+ fireEvent.click(screen.getAllByRole('button', { name: 'Markets' })[0])
+ expect(screen.getByText('FUEL / MORE comparison')).toBeTruthy()
+ radarState.data = null
+})

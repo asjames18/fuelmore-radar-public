@@ -342,6 +342,21 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .daily-activity-table th:first-child { text-align: left; }
 .daily-activity-table thead { color: #9bb2a2; }
 @media (max-width: 650px) { .activity-totals { grid-template-columns: 1fr; padding: 0 14px; } .activity-chart { margin: 12px 6px; } .fuel-activity .segmented { flex-wrap: wrap; } }
+
+.daily-pulse { margin-bottom: 22px; }
+.pulse-group { margin: 0; padding: 16px 22px 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #9bb2a2; }
+.pulse-flag { color: #ffb84d; text-transform: none; letter-spacing: 0; }
+.pulse-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 10px 22px; }
+.pulse-grid > div { border: 1px solid #20412a; background: #0a180f; padding: 14px; border-radius: 6px; }
+.pulse-grid span { display: block; color: #9bb2a2; font-size: 12px; }
+.pulse-grid strong { display: block; font: 24px var(--mono); margin-top: 8px; color: #e1f5e7; overflow-wrap: anywhere; }
+.pulse-note { margin: 12px 22px 16px; line-height: 1.6; font-size: 12px; color: #a7bbb0; }
+.pulse-links { display: flex; flex-wrap: wrap; gap: 10px; padding: 2px 22px 6px; }
+.pulse-links button { border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: #b6c7be; font: 500 12px var(--mono); padding: 9px 14px; cursor: pointer; }
+.pulse-links button:hover { border-color: #36ff6a; color: #e1f5e7; }
+@media (max-width: 1100px) { .pulse-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 650px) { .pulse-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 14px; } .pulse-group, .pulse-note { padding-left: 14px; padding-right: 14px; } .pulse-links { padding-left: 14px; padding-right: 14px; } .pulse-grid strong { font-size: 20px; } }
+
 .source-health { margin-bottom: 18px; padding: 16px 20px; }
 .source-health summary { cursor: pointer; color: #b4d8bf; }
 .source-health p, .source-health small, .batch-positions p { color: #9bb2a2; line-height: 1.6; font-size: 12px; }

@@ -24,13 +24,14 @@ import { ActivityTable } from './components/ActivityTable'
 import { ContractRegistry } from './components/ContractRegistry'
 import { MarketCard } from './components/MarketCard'
 import { MarketChart } from './components/MarketChart'
+import { OverviewStats } from './components/OverviewStats'
 import { ProtocolFlow } from './components/ProtocolFlow'
 import { ProtocolStats } from './components/ProtocolStats'
 import { HolderBoard } from './components/HolderBoard'
 import { FeePreview } from './components/FeePreview'
 import { DEXSCREENER, PAIRS } from './lib/contracts'
 import { formatUsd, shortAddress, timeAgo } from './lib/format'
-import type { RadarData } from './lib/types'
+import type { HistoryPoint, RadarData } from './lib/types'
 import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
@@ -48,9 +49,9 @@ const NAV: Array<{ name: View; Icon: typeof Activity }> = [
 ]
 
 const SUBTITLES: Record<View, string> = {
-  Overview: 'Live market snapshot for FUEL / MORE on Robinhood Chain.',
+  Overview: 'The numbers at a glance — daily activity, protocol stats, and one tap to everything else.',
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
-  Markets: 'Liquidity depth and holder distribution.',
+  Markets: 'Price charts, liquidity depth, and holder distribution.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
   Contracts: 'Verified contract addresses — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
@@ -87,7 +88,8 @@ function TokenCards({ data }: { data: RadarData }) {
   </div>
 }
 
-function MarketsView({ data }: { data: RadarData }) {  return <>
+function MarketsView({ data, history, Risk }: { data: RadarData; history: HistoryPoint[]; Risk?: ComponentType<{ data: RadarData }> }) {  return <>
+    <div className={Risk ? "primary-grid" : undefined}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
     <section className="panel pool-table-panel">
       <div className="panel-heading"><div><h2>Pool execution context</h2><p>Price alone is not executable liquidity</p></div></div>
       <div className="pool-table">
@@ -174,12 +176,12 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         {!data ? <div className="loading-grid" aria-label="Loading dashboard"><div/><div/><div/><div/></div> : <>
           {view === 'Overview' && <>
             <TokenCards data={data}/>
-            <div className={Risk ? "primary-grid" : "public-chart"}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
+            <OverviewStats protocol={data.protocol} onSeeProtocol={() => selectView('Protocol')} onSeeMarkets={() => selectView('Markets')}/>
             <ExploreRadar select={selectView}/>
             {Analytics && <Analytics/>}
             <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}
-          {view === 'Markets' && <MarketsView data={data}/>}
+          {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
