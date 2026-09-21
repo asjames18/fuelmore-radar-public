@@ -87,8 +87,7 @@ function TokenCards({ data }: { data: RadarData }) {
   </div>
 }
 
-function MarketsView({ data }: { data: RadarData }) {
-  return <>
+function MarketsView({ data }: { data: RadarData }) {  return <>
     <section className="panel pool-table-panel">
       <div className="panel-heading"><div><h2>Pool execution context</h2><p>Price alone is not executable liquidity</p></div></div>
       <div className="pool-table">
@@ -99,6 +98,25 @@ function MarketsView({ data }: { data: RadarData }) {
     </section>
     <HolderBoard holders={data.holders}/>
   </>
+}
+
+/**
+ * The Overview is the front door: market snapshot first, then one card per
+ * part of the radar so a first-time visitor sees everything the site does.
+ * Cards link into the views instead of repeating their content.
+ */
+function ExploreRadar({ select }: { select: (view: View) => void }) {
+  const cards = NAV.filter(item => item.name !== 'Overview')
+  return <section className="panel explore-panel" aria-labelledby="explore-title">
+    <div className="panel-heading"><div><h2 id="explore-title">Explore the radar</h2><p>Every part of the radar, one tap away</p></div></div>
+    <div className="explore-grid">
+      {cards.map(({ name, Icon }) => <button key={name} type="button" className="explore-card" onClick={() => select(name)}>
+        <Icon size={20}/>
+        <strong>{name}</strong>
+        <span>{SUBTITLES[name]}</span>
+      </button>)}
+    </div>
+  </section>
 }
 
 export type PersonalFeatures = {
@@ -157,6 +175,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           {view === 'Overview' && <>
             <TokenCards data={data}/>
             <div className={Risk ? "primary-grid" : "public-chart"}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
+            <ExploreRadar select={selectView}/>
             {Analytics && <Analytics/>}
             <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}

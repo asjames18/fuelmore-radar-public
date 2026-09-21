@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import App from './App'
-vi.mock('./useRadarData', () => ({useRadarData:()=>({data:null,history:[],status:'loading',error:null,refresh:vi.fn()})}))
+import type { RadarData } from './lib/types'
+const radarState = vi.hoisted(() => ({ data: null as RadarData | null, history: [] as unknown[], status: 'loading', error: null as string | null, refresh: vi.fn(), refreshing: false }))
+vi.mock('./useRadarData', () => ({useRadarData:()=>radarState}))
 afterEach(cleanup)
 it('public nav keeps Planner as a coming-soon page', () => {
  render(<App/> )
@@ -29,4 +31,15 @@ it('keeps public sync automatic with only a timestamp and cadence', () => {
  expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull()
  expect(screen.queryByText('SYNCING')).toBeNull()
  expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
+})
+
+it('overview hub shows one card per radar section and navigates', () => {
+ radarState.data = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: Date.now(), partial: false } as unknown as RadarData
+ render(<App/>)
+ const section = screen.getByText('Explore the radar').closest('section') as HTMLElement
+ const cards = within(section).getAllByRole('button')
+ expect(cards.map(card => card.querySelector('strong')?.textContent)).toEqual(['Cockpit', 'Markets', 'Protocol', 'Contracts', 'Guide', 'Planner'])
+ fireEvent.click(cards[0])
+ expect(screen.getByText('Wallet position lookup')).toBeTruthy()
+ radarState.data = null
 })

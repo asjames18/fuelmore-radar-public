@@ -11,6 +11,7 @@ import {
 import { bandLabel, buildSafeSellGuide, buildSellInsight, fuelToUsd, splitSellPieces } from '../lib/sellInsight'
 import { BLOCKSCOUT, DEXSCREENER, PAIRS, uniswapBuyFuelUrl, uniswapSellFuelUrl } from '../lib/contracts'
 import { formatChange, formatToken, formatUsd, shortAddress } from '../lib/format'
+import { normalizeWatchlist, readWatchlist, saveWatchlist } from '../lib/watchlist'
 import type { RadarData } from '../lib/types'
 
 function daysUntil(ts: number | null, now: number) {
@@ -36,6 +37,8 @@ export function PublicCockpit({ data }: { data: RadarData }) {
   const [reloadKey, setReloadKey] = useState(0)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [sellSlots, setSellSlots] = useState(1)
+  const [watchlist, setWatchlist] = useState(readWatchlist)
+  const [watchMessage, setWatchMessage] = useState('')
   const [includeLiquid, setIncludeLiquid] = useState(false)
   const [rewardById, setRewardById] = useState<Record<string, { grossWei: bigint | null; netWei: bigint | null; penaltyPct: number }>>({})
   const [rewardIncomplete, setRewardIncomplete] = useState(false)
@@ -191,6 +194,20 @@ export function PublicCockpit({ data }: { data: RadarData }) {
     setReloadKey(value => value + 1)
   }
 
+  function updateWatchlist(next: string[]) {
+    setWatchlist(next)
+    setWatchMessage(saveWatchlist(next) ? 'Watchlist saved in this browser.' : 'Changes are temporary; browser storage is unavailable.')
+  }
+
+  function saveAddress() {
+    const candidate = (activeWallet || walletInput).trim()
+    if (!isAddress(candidate)) { setWatchMessage('Enter a valid wallet address to save.'); return }
+    const normalized = normalizeWatchlist([candidate])[0]
+    if (watchlist.includes(normalized)) { setWatchMessage('This wallet is already saved.'); return }
+    if (watchlist.length >= 50) { setWatchMessage('Watchlist limit reached: remove a wallet before adding another.'); return }
+    updateWatchlist([...watchlist, normalized])
+  }
+
   return <div className="cockpit-page">
     <section className="panel cockpit-toolbar-panel" aria-labelledby="cockpit-title">
       <div className="cockpit-toolbar">
@@ -224,6 +241,15 @@ export function PublicCockpit({ data }: { data: RadarData }) {
           </button>
           {(status === 'loading' || rewardStatus === 'loading') && <button className="refresh" onClick={() => requestRef.current?.abort('cancelled')}>Cancel reading</button>}
         </div>
+      </div>
+      <div className="wallet-watchlist">
+        <div className="calendar-controls"><h3>Saved wallets</h3><button type="button" onClick={saveAddress}>Save entered wallet</button></div>
+        <p>Stored only in this browser. Select a wallet to load its inventory.</p>
+        {watchMessage && <p role="status">{watchMessage}</p>}
+        <div className="watchlist-items">{watchlist.map(saved => <div key={saved}>
+          <button type="button" disabled={status === 'loading'} title={saved} onClick={() => applyWallet(saved)}>{shortAddress(saved, 8, 6)}</button>
+          <button type="button" aria-label={`Remove saved wallet ${shortAddress(saved, 8, 6)}`} onClick={() => updateWatchlist(watchlist.filter(item => item !== saved))}>×</button>
+        </div>)}</div>
       </div>
     </section>
 

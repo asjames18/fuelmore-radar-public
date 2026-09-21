@@ -608,6 +608,20 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .cockpit-tabs button:not(.selected) strong { color: var(--muted); }
 .cockpit-tabs span { font: 10px var(--mono); color: var(--muted); }
 
+/* Overview hub: one card per part of the radar */
+.explore-panel { margin-top: 10px; }
+.explore-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; }
+.explore-card {
+  display: grid; gap: 6px; align-content: start; text-align: left; padding: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 6px; background: rgba(5, 11, 7, .91); color: var(--muted);
+}
+.explore-card:hover { color: var(--text); border-color: var(--line-strong); }
+.explore-card svg { color: var(--green); }
+.explore-card strong { font: 600 13px var(--mono); color: var(--text); }
+.explore-card span { font-size: 11px; line-height: 1.55; color: var(--muted); }
+@media (max-width: 900px) { .explore-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .explore-grid { grid-template-columns: 1fr; } }
+
 /* Guide page */
 .guide-page { display: grid; gap: 10px; }
 .guide-body { padding: 14px 18px 18px; display: grid; gap: 10px; }
