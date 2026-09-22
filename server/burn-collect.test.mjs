@@ -208,3 +208,43 @@ describe('runBurnCollector', () => {
     assert.equal(res.reason, 'kv-unavailable')
   })
 })
+
+describe('seed watermark fallback', () => {
+  it('honors the series watermark when the meta key is missing', async () => {
+    const kv = fakeKv()
+    // Seeded history only: no meta key, watermark embedded in the series.
+    await kv.put(
+      BURNS_KEY,
+      JSON.stringify({
+        version: 1,
+        days: [{ date: '2026-09-22', fuel: 1000, eth: 0.001, drips: 2, dripIds: [] }],
+        totals: { fuel: 1000, eth: 0.001, drips: 2 },
+        watermark_block: '69497245',
+        updated_at: '2026-09-22T09:00:00.000Z',
+      }),
+    )
+    kv.writes.length = 0
+    // A new drip lands after the watermark; the collector must start from
+    // 69497246 and merge it without re-scanning seeded history.
+    const ts = new Map([['69497250', 1790035200]])
+    const chain = fakeChain({
+      logs: [burnLog({ blockNumber: 69497250n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 5n * 10n ** 20n })],
+      timestamps: ts,
+      head: 69497300n,
+    })
+    let seenRange = null
+    const origLogs = chain.logs.bind(chain)
+    chain.logs = async (args) => {
+      seenRange = { from: args.fromBlock.toString(), to: args.toBlock.toString() }
+      return origLogs(args)
+    }
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(seenRange.from, '69497246')
+    const series = await kv.get(BURNS_KEY, 'json')
+    assert.equal(series.totals.drips, 3)
+    assert.ok(Math.abs(series.totals.fuel - 1500) < 1e-6)
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '69497300')
+  })
+})

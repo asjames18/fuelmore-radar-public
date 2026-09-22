@@ -100,18 +100,23 @@ function weiToTokensFloat(wei) {
 export function mergeBurnSeries(stored, freshByDate) {
   const byDate = new Map()
   for (const d of stored?.days ?? []) {
+    // Seeded days carry rounded aggregates without per-drip IDs; keep their
+    // stored drip count so a later merge never undercounts them.
+    const storedDrips = Number(d.drips)
+    const idSet = new Set(Array.isArray(d.dripIds) ? d.dripIds : [])
     byDate.set(d.date, {
       date: d.date,
       fuelWei: BigInt(Math.round(Number(d.fuel) * 1e18)),
       ethWei: BigInt(Math.round(Number(d.eth) * 1e18)),
-      dripIds: new Set(Array.isArray(d.dripIds) ? d.dripIds : []),
+      dripCount: Number.isFinite(storedDrips) && storedDrips >= 0 ? Math.round(storedDrips) : idSet.size,
+      dripIds: idSet,
     })
   }
   let changed = false
   for (const [date, fresh] of freshByDate) {
     let day = byDate.get(date)
     if (!day) {
-      day = { date, fuelWei: 0n, ethWei: 0n, dripIds: new Set() }
+      day = { date, fuelWei: 0n, ethWei: 0n, dripCount: 0, dripIds: new Set() }
       byDate.set(date, day)
     }
     for (const drip of fresh.dripWei) {
@@ -119,6 +124,7 @@ export function mergeBurnSeries(stored, freshByDate) {
       day.dripIds.add(drip.dripId)
       day.fuelWei += drip.fuelWei
       day.ethWei += drip.ethWei
+      day.dripCount += 1
       changed = true
     }
   }
@@ -128,7 +134,7 @@ export function mergeBurnSeries(stored, freshByDate) {
       date: d.date,
       fuel: weiToTokensFloat(d.fuelWei),
       eth: weiToTokensFloat(d.ethWei),
-      drips: d.dripIds.size,
+      drips: d.dripCount,
       dripIds: [...d.dripIds].sort(),
     }))
   let totalFuelWei = 0n
@@ -137,7 +143,7 @@ export function mergeBurnSeries(stored, freshByDate) {
   for (const d of byDate.values()) {
     totalFuelWei += d.fuelWei
     totalEthWei += d.ethWei
-    totalDrips += d.dripIds.size
+    totalDrips += d.dripCount
   }
   return {
     days,
@@ -217,7 +223,19 @@ export async function runBurnCollector(env, options = {}) {
     console.error('burn collector: head block unreadable:', error?.message ?? error)
     return { ok: false, reason: 'head-unreadable' }
   }
-  const fromBlock = meta.lastBlock == null ? BURN_FIRST_BLOCK : meta.lastBlock + 1n
+  const fromBlock = await (async () => {
+    if (meta.lastBlock != null) return meta.lastBlock + 1n
+    // No meta watermark: if the series was seeded with a watermark, honor
+    // it. Seeded days carry rounded aggregates without drip IDs, so a
+    // cold-start re-scan of seeded history would double-count it.
+    try {
+      const seeded = await kv.get(BURNS_KEY, 'json')
+      if (seeded?.watermark_block != null) return BigInt(String(seeded.watermark_block)) + 1n
+    } catch (error) {
+      console.error('burn collector: seed watermark read failed:', error?.message ?? error)
+    }
+    return BURN_FIRST_BLOCK
+  })()
   if (fromBlock > head) {
     console.log('burn collector: already at head; nothing to do')
     return { ok: true, fromBlock: fromBlock.toString(), toBlock: head.toString(), empty: true }
