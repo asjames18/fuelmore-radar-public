@@ -6,7 +6,11 @@ import type { RadarData } from './lib/types'
 const radarState = vi.hoisted(() => ({ data: null as RadarData | null, history: [] as unknown[], status: 'loading', error: null as string | null, refresh: vi.fn(), refreshing: false }))
 vi.mock('./useRadarData', () => ({useRadarData:()=>radarState}))
 vi.mock('./lib/planner', () => ({fetchMintFee: () => Promise.resolve({ mintFeeEth: null, gasPrice: null }), fetchFeePair: () => Promise.resolve({ mintFeeEth: null, claimFeeEth: null, gasPrice: null, at: null, error: 'mocked' })}))
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  // selectView syncs ?view= into the URL; reset so tests stay isolated.
+  window.history.replaceState(null, '', '/')
+})
 it('public nav keeps Planner as a coming-soon page', () => {
  render(<App/> )
  fireEvent.click(screen.getAllByRole('button',{name:'Planner'})[0])
@@ -47,7 +51,7 @@ it('overview hub shows one card per radar section and navigates', () => {
  render(<App/>)
  const section = screen.getByText('Explore the radar').closest('section') as HTMLElement
  const cards = within(section).getAllByRole('button')
- expect(cards.map(card => card.querySelector('strong')?.textContent)).toEqual(['Cockpit', 'Markets', 'Protocol', 'Contracts', 'Guide', 'Planner'])
+ expect(cards.map(card => card.querySelector('strong')?.textContent)).toEqual(['Cockpit', 'Markets', 'Minters', 'Protocol', 'Contracts', 'Guide', 'Planner'])
  fireEvent.click(cards[0])
  expect(screen.getByText('Wallet position lookup')).toBeTruthy()
  radarState.data = null
@@ -60,4 +64,33 @@ it('overview shows number panels instead of the comparison chart, which lives in
  fireEvent.click(screen.getAllByRole('button', { name: 'Markets' })[0])
  expect(screen.getByText('FUEL / MORE comparison')).toBeTruthy()
  radarState.data = null
+})
+
+it('deep link ?view= selects the view case-insensitively; unknown values fall back to Overview', () => {
+  const title = () => document.querySelector('.page-title h1')?.textContent
+  window.history.replaceState(null, '', '/?view=Minters')
+  let r = render(<App/>)
+  expect(title()).toBe('Minters')
+  r.unmount()
+  window.history.replaceState(null, '', '/?view=markets')
+  r = render(<App/>)
+  expect(title()).toBe('Markets')
+  r.unmount()
+  window.history.replaceState(null, '', '/?view=MINTERS')
+  r = render(<App/>)
+  expect(title()).toBe('Minters')
+  r.unmount()
+  // Unknown values must never blank the app: graceful Overview fallback.
+  window.history.replaceState(null, '', '/?view=bogus')
+  r = render(<App/>)
+  expect(title()).toBe('Overview')
+  expect(document.querySelector('.app-shell')).toBeTruthy()
+  r.unmount()
+})
+
+it('in-app navigation keeps the view in the URL so links are shareable', () => {
+  render(<App/>)
+  fireEvent.click(screen.getAllByRole('button', { name: 'Minters' })[0])
+  expect(new URLSearchParams(window.location.search).get('view')).toBe('Minters')
+  expect(document.querySelector('.page-title h1')?.textContent).toBe('Minters')
 })

@@ -63,9 +63,32 @@ export function Guide() {
           every 15 minutes with failover across Dexscreener, GeckoTerminal, and
           DexPaprika, rejecting stale quotes — plus fresher points your browser
           adds between syncs. Each point names its source, so the chart and the
-          market cards always tell the same story.
+          market cards always tell the same story. Today&apos;s flow names the day&apos;s
+          top FUEL buyers and sellers, in Eastern time.
         </p>
         <p>Check here before assuming you can move size without moving the price.</p>
+      </div>
+    </section>
+
+    <section className="panel" aria-labelledby="guide-minters">
+      <div className="panel-heading"><div>
+        <h2 id="guide-minters">Minters — who claimed, who sold</h2>
+        <p>Follow the mint-to-sale trail</p>
+      </div></div>
+      <div className="guide-body">
+        <p>
+          Every wallet that claimed FUEL from mint positions gets a row: how much
+          it claimed, how much it sold into the pool, and the percentage sold.
+          Re-minted counts the new mint positions it opened after its first sale,
+          plus the ETH fees it paid for them — the claim, dump, and re-mint loop,
+          measured per wallet. Tap any wallet to look it up in the Cockpit.
+        </p>
+        <p>
+          Mints land in per-position contracts first, so claimed FUEL is attributed
+          to the first wallet each mint contract forwards to. Dollar values are
+          approximate. Wallets that only trade without minting appear on the
+          Markets flow boards, not here.
+        </p>
       </div>
     </section>
 

@@ -6,6 +6,8 @@ import { handleCockpitRequest } from './cockpit-cache.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
+import { runMinterCollector } from './minter-collect.mjs'
+import { handleMintersRequest, handleFlowsDailyRequest } from './minter-api.mjs'
 import { checkPipelineFreshness } from './watchdog.mjs'
 
 const rpcCache = new Map()
@@ -242,15 +244,41 @@ export default {
       return handleCockpitRequest(request, env)
     }
 
+    if (url.pathname === '/api/minters') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleMintersRequest(request, env.ACTIVITY)
+    }
+
+    if (url.pathname === '/api/flows/daily') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleFlowsDailyRequest(request, env.ACTIVITY)
+    }
+
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rpc')) return Response.json({ error: 'Not found' }, { status: 404 })
-    return env.ASSETS.fetch(request)
+    // Serve static assets from the canonical path, ignoring query strings.
+    // The browser URL (and ?view= deep links) is untouched — only the asset
+    // subrequest is normalized, so a stale query-keyed index document can
+    // never blank a deep link again.
+    const assetUrl = new URL(url)
+    assetUrl.search = ''
+    return env.ASSETS.fetch(new Request(assetUrl, request))
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runMarketSnapshot(env))
-    // Force a GitHub publisher run when the activity pipeline has gone quiet.
-    // This never throws and never blocks the market snapshot above.
-    ctx.waitUntil(checkPipelineFreshness(env).catch(() => null))
+    const cron = event?.cron ?? ''
+    // Market snapshot every 15 minutes; minter analytics hourly.
+    if (cron === '' || cron === '*/15 * * * *') {
+      ctx.waitUntil(runMarketSnapshot(env))
+      // Force a GitHub publisher run when the activity pipeline has gone quiet.
+      // This never throws and never blocks the market snapshot above.
+      ctx.waitUntil(checkPipelineFreshness(env).catch(() => null))
+    }
+    if (cron === '' || cron === '0 * * * *') {
+      // Read-only on-chain scan; never throws out (returns {ok:false} on failure).
+      ctx.waitUntil(
+        runMinterCollector(env).catch((error) => console.error('minter collector error:', error?.message ?? error)),
+      )
+    }
   },
 
 }

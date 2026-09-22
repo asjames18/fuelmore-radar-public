@@ -4,7 +4,8 @@
   "compatibility_date": "2026-09-15",
   "triggers": {
     "crons": [
-      "*/15 * * * *"
+      "*/15 * * * *",
+      "0 * * * *"
     ]
   },
   "ratelimits": [

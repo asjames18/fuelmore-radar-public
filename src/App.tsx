@@ -6,6 +6,7 @@ import {
   Calculator,
   ChartNoAxesCombined,
   CircleDollarSign,
+  Coins,
   ExternalLink,
   FileCode2,
   Menu,
@@ -17,6 +18,8 @@ import {
 } from 'lucide-react'
 import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
+import { MintersView } from './components/MintersView'
+import { DailyFlowCards } from './components/DailyFlowCards'
 import { PublicCockpit } from './components/PublicCockpit'
 import { CockpitView } from './components/CockpitView'
 import { Guide } from './components/Guide'
@@ -38,22 +41,45 @@ import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
 
-type View = 'Overview' | 'Cockpit' | 'Markets' | 'Protocol' | 'Contracts' | 'Guide' | 'Planner'
+type View = 'Overview' | 'Cockpit' | 'Markets' | 'Minters' | 'Protocol' | 'Contracts' | 'Guide' | 'Planner'
 
 const NAV: Array<{ name: View; Icon: typeof Activity }> = [
   { name: 'Overview', Icon: ChartNoAxesCombined },
   { name: 'Cockpit', Icon: WalletCards },
   { name: 'Markets', Icon: CircleDollarSign },
+  { name: 'Minters', Icon: Coins },
   { name: 'Protocol', Icon: Blocks },
   { name: 'Contracts', Icon: FileCode2 },
   { name: 'Guide', Icon: BookOpen },
   { name: 'Planner', Icon: Calculator },
 ]
 
+const VIEW_NAMES: View[] = NAV.map((item) => item.name)
+
+/**
+ * Deep-link support: `?view=Minters` selects the view on initial load.
+ * Case-insensitive; unknown or missing values fall back to Overview —
+ * the app never renders blank for a bad query param.
+ */
+function initialViewFromUrl(): View {
+  try {
+    if (typeof window === 'undefined') return 'Overview'
+    const raw = new URLSearchParams(window.location.search).get('view')
+    if (raw) {
+      const match = VIEW_NAMES.find((name) => name.toLowerCase() === raw.trim().toLowerCase())
+      if (match) return match
+    }
+  } catch {
+    // Malformed URL or restricted environment: fall through to Overview.
+  }
+  return 'Overview'
+}
+
 const SUBTITLES: Record<View, string> = {
   Overview: 'The numbers at a glance — daily activity, protocol stats, and one tap to everything else.',
   Cockpit: 'Look up any wallet — positions, maturity calendar, and FUEL claim modeling. No connection needed.',
   Markets: 'Price charts, liquidity depth, and holder distribution.',
+  Minters: 'Wallets that claimed FUEL from mints — what they claimed, sold, and re-minted.',
   Protocol: 'Protocol health, fee flow, and minting activity.',
   Contracts: 'Contract address registry — check the address, not the name.',
   Guide: 'How to use the Radar, piece by piece.',
@@ -103,8 +129,9 @@ function TokenCards({ data }: { data: RadarData }) {
   </div>
 }
 
-function MarketsView({ data, history, Risk }: { data: RadarData; history: HistoryPoint[]; Risk?: ComponentType<{ data: RadarData }> }) {  return <>
+function MarketsView({ data, history, Risk, onLookupWallet }: { data: RadarData; history: HistoryPoint[]; Risk?: ComponentType<{ data: RadarData }>; onLookupWallet: (address: string) => void }) {  return <>
     <div className={Risk ? "primary-grid" : undefined}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
+    <DailyFlowCards onLookupWallet={onLookupWallet}/>
     <section className="panel pool-table-panel">
       <div className="panel-heading"><div><h2>Pool execution context</h2><p>Price alone is not executable liquidity</p></div></div>
       <div className="pool-table">
@@ -151,12 +178,26 @@ function App({ personal }: { personal?: PersonalFeatures }) {
   const Risk = personal?.Risk
   const Analytics = personal?.Analytics
   const { data, history, status, error, refresh, refreshing } = useRadarData()
-  const [view, setView] = useState<View>('Overview')
+  const [view, setView] = useState<View>(initialViewFromUrl)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [cockpitAddress, setCockpitAddress] = useState<string | null>(null)
 
   const selectView = (next: View) => {
     setView(next)
+    // Keep the URL shareable; replaceState avoids polluting back-button history.
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('view', next)
+      window.history.replaceState(null, '', url)
+    } catch {
+      // Non-browser or restricted environment: view state still works.
+    }
     track('view_selected')
+  }
+  // Jump from a minter/flow wallet row into the Cockpit lookup for that wallet.
+  const lookupWallet = (address: string) => {
+    setCockpitAddress(address)
+    selectView('Cockpit')
   }
   // The private app renders its full Planner; public visitors see the coming-soon placeholder.
   const navItems = NAV
@@ -185,7 +226,8 @@ function App({ personal }: { personal?: PersonalFeatures }) {
 
         {personal && data && <SnapshotFreshness data={data}/>}
         {data && Diagnostics && <Diagnostics data={data}/>}
-        {view === 'Cockpit' && <CockpitView data={data} defaultWallet={personal?.defaultWallet} Cockpit={Cockpit}/>}
+        {view === 'Cockpit' && <CockpitView key={cockpitAddress ?? 'default'} data={data} defaultWallet={cockpitAddress ?? personal?.defaultWallet} Cockpit={Cockpit}/>}
+        {view === 'Minters' && <MintersView onLookupWallet={lookupWallet}/>}
         {view === 'Guide' && <Guide/>}
         {view === 'Planner' && (Planner ? <Planner/> : <PlannerComingSoon/>)}
         {view === 'Protocol' && <FuelActivity/>}
@@ -197,7 +239,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
             {Analytics && <Analytics/>}
             <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}
-          {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk}/>}
+          {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk} onLookupWallet={lookupWallet}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}

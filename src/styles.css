@@ -142,6 +142,19 @@ main { padding: 20px 22px 36px; max-width: 1800px; margin: 0 auto; }
 .panel-heading h2 { margin: 0; font: 500 14px var(--mono); }
 .panel-heading p { margin: 4px 0 0; color: var(--muted); font: 10px var(--mono); }
 .mono { font-family: var(--mono); }.muted { color: var(--muted); font-size: 10px; }
+/* Minter analytics: wallet links that jump to the Cockpit lookup, and the
+   sortable column headers of the Minters table. */
+.link-button { background: none; border: 0; padding: 0; color: var(--green); cursor: pointer; font-size: inherit; text-align: left; }
+.link-button:hover { text-decoration: underline; }
+.sort-button { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.sort-button:hover { color: var(--green); }
+.minter-table th { white-space: nowrap; }
+.minter-table td small { font-size: 10px; }
+/* Enlarge sort-header tap targets on touch screens (the table scrolls
+   horizontally, so the extra padding cannot cause page overflow). */
+@media (max-width: 860px) {
+  .sort-button { padding: 8px 6px; }
+}
 .segmented { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .segmented button { min-width: 72px; height: 31px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font: 10px var(--mono); cursor: pointer; }
 .segmented button:last-child { border-right: 0; }
