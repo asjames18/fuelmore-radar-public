@@ -49,3 +49,13 @@ export const timeAgo = (iso: string) => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
   return `${Math.floor(seconds / 3600)}h ago`
 }
+
+/** Staleness threshold for the public sync indicator: beyond this the saved data is treated as paused. */
+export const SYNC_STALE_AFTER_MS = 6 * 3600 * 1000
+
+/** True when the saved dashboard snapshot is old enough that visitors should be told the sync is paused. */
+export const isSyncStale = (updatedAt: string | null | undefined) => {
+  if (!updatedAt) return false
+  const ms = Date.parse(updatedAt)
+  return Number.isFinite(ms) && Date.now() - ms > SYNC_STALE_AFTER_MS
+}

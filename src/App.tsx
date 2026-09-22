@@ -36,7 +36,7 @@ import { HolderBoard } from './components/HolderBoard'
 import { FeePreview } from './components/FeePreview'
 import { DonateChip } from './components/DonateChip'
 import { DEXSCREENER, PAIRS } from './lib/contracts'
-import { formatUsd, shortAddress, timeAgo } from './lib/format'
+import { formatUsd, shortAddress, timeAgo, isSyncStale } from './lib/format'
 import type { HistoryPoint, RadarData } from './lib/types'
 import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
@@ -215,6 +215,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
           <button className="refresh" onClick={() => { track('refresh_clicked'); void refresh() }} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
             <span title={data ? new Date(data.updatedAt).toISOString() : undefined}>Last sync: {data ? timeAgo(data.updatedAt) : 'waiting for data'}</span>
             <small>Scheduled every 15 minutes</small>
+            {data && isSyncStale(data.updatedAt) && <small className="sync-paused-note">Syncing paused — showing last available data</small>}
           </div>}
           <div className="read-only"><ShieldCheck size={16}/><span>Read-only</span></div>
         </div>

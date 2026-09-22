@@ -40,6 +40,15 @@ export const MARKET_HISTORY_KEY = 'market-history-v2'
 // than migrated.
 export const MARKET_HISTORY_MAX_POINTS = 90 * 24 * 4
 export const MARKET_HISTORY_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+/**
+ * Write-bounding for the 15-minute market collector: a new point whose prices and
+ * liquidity are all within MARKET_HISTORY_CHANGE_EPS (relative) of the last
+ * stored point is display-noise, so the KV write is skipped. The heartbeat
+ * below still forces a write at least hourly, so the stored freshness can
+ * never go stale purely from skipping.
+ */
+export const MARKET_HISTORY_CHANGE_EPS = 1e-6
+export const MARKET_HISTORY_HEARTBEAT_SECONDS = 3600
 
 /**
  * Deviation guard: a fresh last point (within DEVIATION_FRESH_SECONDS)
@@ -158,11 +167,34 @@ export async function readMarketHistory(kv) {
   return [...byTime.values()].sort((a, b) => a.t - b.t).slice(-MARKET_HISTORY_MAX_POINTS)
 }
 
+/** True when two points' numeric fields are all within the change epsilon (nulls must match exactly). */
+export function marketPointsEqual(a, b) {
+  for (const key of ['fuelPrice', 'fuelLiquidity', 'morePrice', 'moreLiquidity']) {
+    const x = a[key]
+    const y = b[key]
+    if (x === null || y === null) {
+      if (x !== y) return false
+      continue
+    }
+    if (!(typeof x === 'number' && typeof y === 'number')) return false
+    const denom = Math.max(Math.abs(x), Math.abs(y), Number.MIN_VALUE)
+    if (Math.abs(x - y) / denom > MARKET_HISTORY_CHANGE_EPS) return false
+  }
+  return true
+}
+
 export async function appendMarketHistory(kv, point) {
   const history = await readMarketHistory(kv)
   const last = history.at(-1)
   // Never record a duplicate or out-of-order observation.
   if (last && point.t <= last.t) return history
+  // Write-bounded: skip the KV write when nothing changed since a recent
+  // point. The hourly heartbeat forces a write regardless, so a perfectly
+  // flat market still advances the stored freshness at least once an hour.
+  if (last && point.t - last.t < MARKET_HISTORY_HEARTBEAT_SECONDS && marketPointsEqual(point, last)) {
+    console.log(`market snapshot: unchanged since t=${last.t}; skipping KV write`)
+    return history
+  }
   const next = [...history, point].slice(-MARKET_HISTORY_MAX_POINTS)
   await kv.put(
     MARKET_HISTORY_KEY,

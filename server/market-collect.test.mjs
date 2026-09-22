@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import {
   MarketValidationError,
   SOURCE_ORDER,
+  appendMarketHistory,
   collectMarketSnapshot,
+  marketPointsEqual,
   runMarketSnapshot,
   validateDexPair,
 } from './market-collect.mjs'
@@ -754,6 +756,83 @@ describe('runMarketSnapshot success path', () => {
     const result = await runMarketSnapshot({})
     assert.equal(result.ok, false)
     assert.equal(result.reason, 'kv-unavailable')
+  })
+})
+
+describe('market history write-bounding (change detection)', () => {
+  const nowSec = () => Math.floor(Date.now() / 1000)
+  const basePoint = () => ({
+    t: nowSec() - 900,
+    fuelPrice: 1.23,
+    fuelLiquidity: 456789,
+    morePrice: 4.56,
+    moreLiquidity: 98765,
+    fuelSource: 'dexscreener',
+    moreSource: 'dexscreener',
+    fuelObservedAt: null,
+    moreObservedAt: null,
+  })
+  function kvWith(points) {
+    const writes = []
+    return {
+      writes,
+      kv: {
+        get: async () => ({ updatedAt: new Date(points.at(-1).t * 1000).toISOString(), points }),
+        put: async (...args) => { writes.push(args) },
+      },
+    }
+  }
+  it('skips the KV write when the new point is numerically identical to a recent last point', async () => {
+    const console = captureConsole()
+    try {
+      const { writes, kv } = kvWith([basePoint()])
+      const result = await appendMarketHistory(kv, { ...basePoint(), t: basePoint().t + 900 })
+      assert.equal(writes.length, 0)
+      assert.equal(result.length, 1)
+      assert.equal(result[0].t, basePoint().t)
+    } finally {
+      console.restore()
+    }
+  })
+  it('skips the KV write when the new point differs only within the epsilon', async () => {
+    const console = captureConsole()
+    try {
+      const { writes, kv } = kvWith([basePoint()])
+      const drifted = { ...basePoint(), t: basePoint().t + 900, fuelPrice: basePoint().fuelPrice * (1 + 1e-9) }
+      const result = await appendMarketHistory(kv, drifted)
+      assert.equal(writes.length, 0)
+      assert.equal(result.length, 1)
+    } finally {
+      console.restore()
+    }
+  })
+  it('writes when a value moved beyond the epsilon', async () => {
+    const { writes, kv } = kvWith([basePoint()])
+    const moved = { ...basePoint(), t: basePoint().t + 900, morePrice: basePoint().morePrice * 1.01 }
+    const result = await appendMarketHistory(kv, moved)
+    assert.equal(writes.length, 1)
+    assert.equal(result.length, 2)
+    assert.equal(result[1].morePrice, moved.morePrice)
+  })
+  it('writes the hourly heartbeat even when values are identical', async () => {
+    const { writes, kv } = kvWith([basePoint()])
+    const later = { ...basePoint(), t: basePoint().t + 3600 }
+    const result = await appendMarketHistory(kv, later)
+    assert.equal(writes.length, 1)
+    assert.equal(result.length, 2)
+  })
+  it('treats null-to-number as a change', async () => {
+    const nulled = { ...basePoint(), fuelPrice: null }
+    const { writes, kv } = kvWith([nulled])
+    const result = await appendMarketHistory(kv, { ...basePoint(), t: basePoint().t + 900 })
+    assert.equal(writes.length, 1)
+    assert.equal(result.length, 2)
+  })
+  it('marketPointsEqual handles exact, epsilon, and null cases', () => {
+    assert.equal(marketPointsEqual(basePoint(), { ...basePoint() }), true)
+    assert.equal(marketPointsEqual(basePoint(), { ...basePoint(), fuelLiquidity: basePoint().fuelLiquidity + 1 }), false)
+    assert.equal(marketPointsEqual(basePoint(), { ...basePoint(), fuelPrice: null }), false)
+    assert.equal(marketPointsEqual({ ...basePoint(), morePrice: null }, { ...basePoint(), morePrice: null }), true)
   })
 })
 

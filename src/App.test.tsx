@@ -45,6 +45,27 @@ it('keeps public sync automatic with only a timestamp and cadence', () => {
  expect(screen.queryByText('SYNCING')).toBeNull()
  expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
 })
+it('shows a calm paused-sync note when saved data is older than 6 hours', () => {
+ const staleData = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: new Date(Date.now() - 8 * 3600_000).toISOString(), partial: false } as unknown as RadarData
+ radarState.data = staleData
+ try {
+   render(<App/>)
+   expect(screen.getByText('Syncing paused — showing last available data')).toBeTruthy()
+   expect(screen.getByText(/Last sync:/)).toBeTruthy()
+ } finally {
+   radarState.data = null
+ }
+})
+it('hides the paused-sync note while saved data is fresh', () => {
+ const freshData = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: new Date().toISOString(), partial: false } as unknown as RadarData
+ radarState.data = freshData
+ try {
+   render(<App/>)
+   expect(screen.queryByText('Syncing paused — showing last available data')).toBeNull()
+ } finally {
+   radarState.data = null
+ }
+})
 
 it('overview hub shows one card per radar section and navigates', () => {
  radarState.data = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: Date.now(), partial: false } as unknown as RadarData

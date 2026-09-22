@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatChange, formatClaimedFuel, formatEth, formatToken, formatUsd, shortAddress } from './format'
+import { formatChange, formatClaimedFuel, formatEth, formatToken, formatUsd, isSyncStale, shortAddress } from './format'
 
 describe('dashboard formatters', () => {
   it('keeps small token prices readable', () => {
@@ -21,5 +21,18 @@ describe('dashboard formatters', () => {
   it('keeps invalid claimed-fuel strings unknown instead of crashing', () => {
     expect(formatClaimedFuel('12.5')).toBe('12.5')
     expect(formatClaimedFuel('not-a-number')).toBe('—')
+  })
+
+  it('flags a sync as stale only past the 6-hour threshold', () => {
+    const now = Date.now()
+    expect(isSyncStale(new Date(now - 60_000).toISOString())).toBe(false)
+    expect(isSyncStale(new Date(now - 5 * 3600_000).toISOString())).toBe(false)
+    expect(isSyncStale(new Date(now - 6 * 3600_000 - 1_000).toISOString())).toBe(true)
+    expect(isSyncStale(new Date(now - 8 * 3600_000).toISOString())).toBe(true)
+    expect(isSyncStale(null)).toBe(false)
+    expect(isSyncStale(undefined)).toBe(false)
+    expect(isSyncStale('not-a-date')).toBe(false)
+    // A future timestamp is never stale.
+    expect(isSyncStale(new Date(now + 60_000).toISOString())).toBe(false)
   })
 })
