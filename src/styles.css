@@ -683,13 +683,6 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .linklike:hover { color: var(--text); }
 
 /* First-claim countdown banner (Overview hub) */
-.claim-countdown { margin: 14px 18px 4px; padding: 14px 18px; border: 1px solid var(--line-strong); border-radius: 8px; background: linear-gradient(180deg, rgba(20, 60, 32, .55), rgba(5, 11, 7, .9)); }
-.claim-countdown-label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.claim-countdown-digits { font: 700 30px/1.2 var(--mono); color: var(--green); margin-top: 6px; font-variant-numeric: tabular-nums; }
-.claim-countdown-sub { margin-top: 6px; font-size: 12px; color: #a7bbb0; }
-.claim-countdown.live .claim-countdown-label { color: var(--green); }
-.claim-countdown.live { border-color: var(--green); }
-@media (max-width: 560px) { .claim-countdown-digits { font-size: 24px; } }
 
 /* Mobile holder-board overrides live here (after the base rules) so they win on equal specificity. */
 @media (max-width: 860px) {

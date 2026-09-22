@@ -37,9 +37,7 @@ export function Guide() {
           submitted mints or claims, not verified people — for today only, plus mint
           starts, reward claims, and FUEL claimed today and over the last seven days.
           Upcoming maturities lists FUEL mint positions maturing in the next few
-          days. A banner at the top of the panel tracks the first reward unlock —
-          with matured positions waiting it shows "First rewards are live" instead
-          of a countdown. When a value is unavailable
+          days. When a value is unavailable
           we show it as missing instead of guessing.
         </p>
         <p>

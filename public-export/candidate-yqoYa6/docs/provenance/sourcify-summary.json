@@ -1,0 +1,206 @@
+{
+  "fuel": {
+    "address": "0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T21:51:32Z",
+    "matchId": "51013711",
+    "sourceFiles": [
+      "@openzeppelin/contracts/access/Ownable.sol",
+      "@openzeppelin/contracts/access/Ownable2Step.sol",
+      "@openzeppelin/contracts/interfaces/IERC165.sol",
+      "@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
+      "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+      "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+      "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+      "@openzeppelin/contracts/utils/Context.sol",
+      "@openzeppelin/contracts/utils/Panic.sol",
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+      "@openzeppelin/contracts/utils/StorageSlot.sol",
+      "@openzeppelin/contracts/utils/introspection/IERC165.sol",
+      "@openzeppelin/contracts/utils/math/Math.sol",
+      "@openzeppelin/contracts/utils/math/SafeCast.sol",
+      "Token.sol",
+      "abdk-libraries-solidity/ABDKMath64x64.sol",
+      "interfaces/IBurnRedeemable.sol",
+      "interfaces/IBurnableToken.sol",
+      "interfaces/IMintVault.sol",
+      "interfaces/IRankedMintingToken.sol",
+      "interfaces/IStakingToken.sol"
+    ],
+    "keywordHits": {
+      "mintFee": 8,
+      "claimFee": 8,
+      "penalty": 12,
+      "RankClaimed": 2,
+      "MintClaimed": 4,
+      "getCurrentAPY": 1,
+      "claimMintReward": 7,
+      "reward": 68,
+      "maturity": 21
+    }
+  },
+  "more": {
+    "address": "0xc0F1A40512114b25cc1F30b5DF0bb48691405555",
+    "error": "HTTP Error 404: Not Found"
+  },
+  "batch": {
+    "address": "0xEaB771dB3883dC05DbEA1915F7e81910869bbc18",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T22:04:42Z",
+    "matchId": "51014226",
+    "sourceFiles": [
+      "@openzeppelin/contracts/proxy/Clones.sol",
+      "@openzeppelin/contracts/utils/Create2.sol",
+      "@openzeppelin/contracts/utils/Errors.sol",
+      "@openzeppelin/contracts/utils/LowLevelCall.sol",
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+      "@openzeppelin/contracts/utils/StorageSlot.sol",
+      "BatchMinter.sol"
+    ],
+    "keywordHits": {
+      "mintFee": 5,
+      "claimFee": 10,
+      "penalty": 1,
+      "RankClaimed": 2,
+      "claimMintReward": 3,
+      "reward": 13
+    }
+  },
+  "distributor": {
+    "address": "0x2f69ff61802d9738e562E438d1F6326389D95861",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T22:00:59Z",
+    "matchId": "51014080",
+    "sourceFiles": [
+      "FeeDistributor.sol"
+    ],
+    "keywordHits": {
+      "VAULT_BPS": 2,
+      "BURN_BPS": 1,
+      "MORE_BPS": 2
+    }
+  },
+  "vault": {
+    "address": "0x492d111487f097759340dc119DE5887d58c38bB0",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T21:58:12Z",
+    "matchId": "51013950",
+    "sourceFiles": [
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+      "@openzeppelin/contracts/utils/StorageSlot.sol",
+      "MintVault.sol"
+    ],
+    "keywordHits": {}
+  },
+  "fuelBurner": {
+    "address": "0x1f8e137117f78EF1EA84235F3E5423c46bF2D4A2",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T21:53:24Z",
+    "matchId": "51013791",
+    "sourceFiles": [
+      "@openzeppelin/contracts/access/Ownable.sol",
+      "@openzeppelin/contracts/access/Ownable2Step.sol",
+      "@openzeppelin/contracts/interfaces/IERC165.sol",
+      "@openzeppelin/contracts/interfaces/draft-IERC6093.sol",
+      "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+      "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+      "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+      "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol",
+      "@openzeppelin/contracts/utils/Context.sol",
+      "@openzeppelin/contracts/utils/Panic.sol",
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+      "@openzeppelin/contracts/utils/StorageSlot.sol",
+      "@openzeppelin/contracts/utils/introspection/IERC165.sol",
+      "@openzeppelin/contracts/utils/math/Math.sol",
+      "@openzeppelin/contracts/utils/math/SafeCast.sol",
+      "Token.sol",
+      "TokenBuyAndBurn.sol",
+      "abdk-libraries-solidity/ABDKMath64x64.sol",
+      "const/TokenConst.sol",
+      "https://github.com/Uniswap/v3-core/blob/0.8/contracts/libraries/TickMath.sol",
+      "interfaces/IBurnRedeemable.sol",
+      "interfaces/IBurnableToken.sol",
+      "interfaces/IMintVault.sol",
+      "interfaces/INonfungiblePositionManager.sol",
+      "interfaces/IRankedMintingToken.sol",
+      "interfaces/IStakingToken.sol",
+      "interfaces/IUniswapV3PoolMinimal.sol",
+      "interfaces/IV3SwapRouter.sol",
+      "library/OracleLibrary.sol",
+      "library/TransferHelper.sol"
+    ],
+    "keywordHits": {
+      "mintFee": 8,
+      "claimFee": 8,
+      "penalty": 12,
+      "RankClaimed": 2,
+      "MintClaimed": 4,
+      "getCurrentAPY": 1,
+      "claimMintReward": 7,
+      "reward": 69,
+      "maturity": 21
+    }
+  },
+  "moreBurner": {
+    "address": "0x86f11A15E1793e7ce1F4264830d1973e80339A51",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-14T21:55:05Z",
+    "matchId": "51013856",
+    "sourceFiles": [
+      "@openzeppelin/contracts/access/Ownable.sol",
+      "@openzeppelin/contracts/access/Ownable2Step.sol",
+      "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+      "@openzeppelin/contracts/utils/Context.sol",
+      "@openzeppelin/contracts/utils/Panic.sol",
+      "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+      "@openzeppelin/contracts/utils/StorageSlot.sol",
+      "@openzeppelin/contracts/utils/math/Math.sol",
+      "@openzeppelin/contracts/utils/math/SafeCast.sol",
+      "MoreBurner.sol",
+      "const/TokenConst.sol",
+      "https://github.com/Uniswap/v3-core/blob/0.8/contracts/libraries/TickMath.sol",
+      "interfaces/IUniswapV3PoolMinimal.sol",
+      "interfaces/IV3SwapRouter.sol",
+      "library/OracleLibrary.sol",
+      "library/TransferHelper.sol"
+    ],
+    "keywordHits": {
+      "reward": 1
+    }
+  },
+  "moreStaking": {
+    "address": "0xCC22e7f65bEF29aa21f6F59b9363fdc26005dE31",
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "verifiedAt": "2026-09-07T19:42:21Z",
+    "matchId": "47251381",
+    "sourceFiles": [
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/access/Ownable.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/security/ReentrancyGuard.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/token/ERC20/IERC20.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/token/ERC20/extensions/IERC20Permit.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/token/ERC20/utils/SafeERC20.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/utils/Address.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/utils/Context.sol",
+      "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v4.9.3/contracts/utils/structs/EnumerableSet.sol",
+      "rhmoreteststk.sol"
+    ],
+    "keywordHits": {
+      "penalty": 28,
+      "reward": 16
+    }
+  }
+}

@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => ({
     transformIndexHtml: {
       order: 'pre',
       handler(html) {
-        return mode === 'public' ? html : html
+        return mode === 'public' ? html.replace('/src/main.tsx', '/src/main.public.tsx') : html
       },
     },
   }],
