@@ -1,6 +1,6 @@
 import { it } from 'node:test'
 import assert from 'node:assert/strict'
-import { handleMintersRequest, handleFlowsDailyRequest } from './minter-api.mjs'
+import { handleMintersRequest, handleFlowsDailyRequest, handleBurnsRequest } from './minter-api.mjs'
 
 function fakeKv(entries = {}) {
   const store = new Map(Object.entries(entries))
@@ -172,4 +172,56 @@ it('defaults to today in America/New_York', async () => {
   const res = await handleFlowsDailyRequest(req('/api/flows/daily'), kvWithRows())
   const body = await res.json()
   assert.equal(body.date, expected)
+})
+
+function kvWithBurns() {
+  return fakeKv({
+    'burns:daily': JSON.stringify({
+      version: 1,
+      days: [
+        { date: '2026-09-21', fuel: 527410.98, eth: 0.00972, drips: 19, dripIds: [] },
+        { date: '2026-09-22', fuel: 3869754.35, eth: 0.003613, drips: 7, dripIds: [] },
+      ],
+      totals: { fuel: 4397165.33, eth: 0.013333, drips: 26 },
+      watermark_block: '69530000',
+      updated_at: '2026-09-22T09:00:00.000Z',
+    }),
+    'meta:burn-collector': JSON.stringify({
+      last_block: '69530000',
+      last_run_ts: 1758525600,
+      status: 'ok',
+    }),
+  })
+}
+
+it('serves the daily burn series with totals and methodology', async () => {
+  const res = await handleBurnsRequest(req('/api/burns'), kvWithBurns())
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.equal(body.status, 'ok')
+  assert.equal(body.days.length, 2)
+  assert.equal(body.days[0].date, '2026-09-21')
+  assert.equal(body.days[0].fuel, 527410.98)
+  assert.equal(body.days[0].eth, 0.00972)
+  assert.equal(body.days[0].drips, 19)
+  assert.equal(body.totals.fuel, 4397165.33)
+  assert.equal(body.totals.drips, 26)
+  assert.equal(typeof body.methodology, 'string')
+  assert.ok(body.methodology.includes('token.burn()'))
+  assert.equal(body.through_block, '69530000')
+  assert.ok(!('dripIds' in body.days[0]), 'internal drip ids are not exposed')
+})
+
+it('reports collecting when the burn series is missing', async () => {
+  const res = await handleBurnsRequest(req('/api/burns'), fakeKv({}))
+  const body = await res.json()
+  assert.equal(body.status, 'collecting')
+  assert.deepEqual(body.days, [])
+  assert.equal(body.totals.fuel, null)
+  assert.equal(typeof body.methodology, 'string')
+})
+
+it('returns 503 when KV is unavailable', async () => {
+  const res = await handleBurnsRequest(req('/api/burns'), null)
+  assert.equal(res.status, 503)
 })

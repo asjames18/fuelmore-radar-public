@@ -7,7 +7,8 @@ import { handleCockpitRequest } from './cockpit-cache.mjs'
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
 import { runMinterCollector } from './minter-collect.mjs'
-import { handleMintersRequest, handleFlowsDailyRequest } from './minter-api.mjs'
+import { runBurnCollector } from './burn-collect.mjs'
+import { handleMintersRequest, handleFlowsDailyRequest, handleBurnsRequest } from './minter-api.mjs'
 import { checkPipelineFreshness } from './watchdog.mjs'
 
 const rpcCache = new Map()
@@ -254,6 +255,11 @@ export default {
       return handleFlowsDailyRequest(request, env.ACTIVITY)
     }
 
+    if (url.pathname === '/api/burns') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleBurnsRequest(request, env.ACTIVITY)
+    }
+
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rpc')) return Response.json({ error: 'Not found' }, { status: 404 })
     // Serve static assets from the canonical path, ignoring query strings.
     // The browser URL (and ?view= deep links) is untouched — only the asset
@@ -277,6 +283,10 @@ export default {
       // Read-only on-chain scan; never throws out (returns {ok:false} on failure).
       ctx.waitUntil(
         runMinterCollector(env).catch((error) => console.error('minter collector error:', error?.message ?? error)),
+      )
+      // FUEL buy-and-burn drip scan; write-bounded (~1 KV write on quiet hours).
+      ctx.waitUntil(
+        runBurnCollector(env).catch((error) => console.error('burn collector error:', error?.message ?? error)),
       )
     }
   },

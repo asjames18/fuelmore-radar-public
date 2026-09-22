@@ -1,0 +1,210 @@
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  FUEL_BURNER,
+  BUY_AND_BURN_TOPIC,
+  BURNS_KEY,
+  BURN_META_KEY,
+  decodeBurnLog,
+  utcDate,
+  aggregateDripsDetail,
+  mergeBurnSeries,
+  runBurnCollector,
+} from './burn-collect.mjs'
+
+const TOPIC = BUY_AND_BURN_TOPIC
+
+function padTopic(hexNoPrefix) {
+  return '0x' + hexNoPrefix.padStart(64, '0')
+}
+
+function burnLog({ blockNumber, logIndex, ethWei, fuelWei, address = FUEL_BURNER, topic0 = TOPIC, txHash = '0xabc' }) {
+  return {
+    address,
+    topics: [
+      topic0,
+      padTopic(ethWei.toString(16)),
+      padTopic(fuelWei.toString(16)),
+      padTopic('11'.repeat(20)),
+    ],
+    blockNumber: '0x' + blockNumber.toString(16),
+    logIndex: '0x' + logIndex.toString(16),
+    transactionHash: txHash,
+  }
+}
+
+describe('decodeBurnLog', () => {
+  it('decodes eth and fuel amounts from indexed topics', () => {
+    const drip = decodeBurnLog(
+      burnLog({ blockNumber: 70000000n, logIndex: 3n, ethWei: 1000000000000000n, fuelWei: 5000000000000000000000n }),
+    )
+    assert.ok(drip)
+    assert.equal(drip.ethWei, 1000000000000000n)
+    assert.equal(drip.fuelWei, 5000000000000000000000n)
+    assert.equal(drip.blockNumber, 70000000n)
+    assert.equal(drip.dripId, '70000000:3')
+  })
+
+  it('rejects logs from other contracts, other events, or zero burns', () => {
+    assert.equal(
+      decodeBurnLog(burnLog({ blockNumber: 1n, logIndex: 0n, ethWei: 1n, fuelWei: 1n, address: '0x0000000000000000000000000000000000000001' })),
+      null,
+    )
+    assert.equal(
+      decodeBurnLog(burnLog({ blockNumber: 1n, logIndex: 0n, ethWei: 1n, fuelWei: 1n, topic0: padTopic('dd'.repeat(32)) })),
+      null,
+    )
+    assert.equal(
+      decodeBurnLog(burnLog({ blockNumber: 1n, logIndex: 0n, ethWei: 1n, fuelWei: 0n })),
+      null,
+    )
+    assert.equal(decodeBurnLog(null), null)
+  })
+})
+
+describe('utcDate', () => {
+  it('formats a UTC calendar date', () => {
+    // 2026-09-22 00:00:00 UTC
+    assert.equal(utcDate(1790035200), '2026-09-22')
+    assert.equal(utcDate(0), null)
+    assert.equal(utcDate('nope'), null)
+  })
+})
+
+describe('aggregateDripsDetail + mergeBurnSeries', () => {
+  const ts = new Map([['70000000', 1790035200]]) // 2026-09-22 UTC
+
+  it('buckets drips by UTC date and is idempotent on re-merge', () => {
+    const drips = [
+      decodeBurnLog(burnLog({ blockNumber: 70000000n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n })),
+      decodeBurnLog(burnLog({ blockNumber: 70000000n, logIndex: 1n, ethWei: 2n * 10n ** 15n, fuelWei: 3n * 10n ** 21n })),
+    ]
+    const fresh = aggregateDripsDetail(drips, ts)
+    const first = mergeBurnSeries(null, fresh)
+    assert.equal(first.changed, true)
+    assert.equal(first.days.length, 1)
+    assert.equal(first.days[0].date, '2026-09-22')
+    assert.equal(first.days[0].drips, 2)
+    assert.equal(first.totals.drips, 2)
+    assert.ok(Math.abs(first.totals.fuel - 4000) < 1e-6)
+    assert.ok(Math.abs(first.totals.eth - 0.003) < 1e-12)
+
+    // Re-merging the same drips changes nothing (idempotent).
+    const second = mergeBurnSeries({ days: first.days }, fresh)
+    assert.equal(second.changed, false)
+    assert.deepEqual(second.totals, first.totals)
+
+    // A new drip on the same day merges in.
+    const more = [
+      decodeBurnLog(burnLog({ blockNumber: 70000000n, logIndex: 2n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n })),
+    ]
+    const third = mergeBurnSeries({ days: first.days }, aggregateDripsDetail(more, ts))
+    assert.equal(third.changed, true)
+    assert.equal(third.days[0].drips, 3)
+    assert.ok(Math.abs(third.totals.fuel - 5000) < 1e-6)
+  })
+
+  it('skips drips whose block timestamp is unknown', () => {
+    const drips = [decodeBurnLog(burnLog({ blockNumber: 70000001n, logIndex: 0n, ethWei: 1n, fuelWei: 10n ** 18n }))]
+    const fresh = aggregateDripsDetail(drips, ts)
+    assert.equal(fresh.size, 0)
+  })
+})
+
+function fakeKv() {
+  const store = new Map()
+  const writes = []
+  return {
+    writes,
+    async get(key, type) {
+      const raw = store.get(key)
+      if (raw === undefined) return null
+      return type === 'json' ? JSON.parse(raw) : raw
+    },
+    async put(key, value) {
+      writes.push(key)
+      store.set(key, value)
+    },
+  }
+}
+
+function fakeChain({ logs = [], timestamps = new Map(), head = 70000100n }) {
+  return {
+    async headBlock() {
+      return head
+    },
+    async logs() {
+      return logs
+    },
+    async blockTimestamps() {
+      return timestamps
+    },
+  }
+}
+
+describe('runBurnCollector', () => {
+  it('cold start scans from the first-burn block and writes series + meta', async () => {
+    const kv = fakeKv()
+    const ts = new Map([['63115001', 1789431120]])
+    const chain = fakeChain({
+      logs: [burnLog({ blockNumber: 63115001n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 5n * 10n ** 20n })],
+      timestamps: ts,
+      head: 63116000n,
+    })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(res.dripsScanned, 1)
+    assert.deepEqual(kv.writes, [BURNS_KEY, BURN_META_KEY])
+    const series = await kv.get(BURNS_KEY, 'json')
+    assert.equal(series.days.length, 1)
+    assert.equal(series.totals.drips, 1)
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '63116000')
+  })
+
+  it('quiet hour: no new drips writes only the meta watermark', async () => {
+    const kv = fakeKv()
+    const chain = fakeChain({ logs: [], head: 70000100n })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(res.dripsScanned, 0)
+    assert.deepEqual(kv.writes, [BURN_META_KEY])
+  })
+
+  it('does not double-count drips when re-scanning an overlapping range', async () => {
+    const kv = fakeKv()
+    const ts = new Map([['70000010', 1790035200]])
+    const log = burnLog({ blockNumber: 70000010n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n })
+    const chain = fakeChain({ logs: [log], timestamps: ts, head: 70000020n })
+    const first = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(first.ok, true)
+    // Simulate a watermark rewind (retry of the same range): the same drip
+    // is scanned again but must not be counted twice.
+    const chain2 = fakeChain({ logs: [log], timestamps: ts, head: 70000020n })
+    // Force the watermark back by hand-writing an older meta.
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '70000009', last_run_ts: 1, status: 'ok' }))
+    kv.writes.length = 0
+    const second = await runBurnCollector({ ACTIVITY: kv }, { chain: chain2, deadline: Date.now() + 60000 })
+    assert.equal(second.ok, true)
+    const series = await kv.get(BURNS_KEY, 'json')
+    assert.equal(series.totals.drips, 1)
+    assert.ok(Math.abs(series.totals.fuel - 1000) < 1e-6)
+  })
+
+  it('already at head returns empty without writing', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '70000100', last_run_ts: 1, status: 'ok' }))
+    kv.writes.length = 0
+    const chain = fakeChain({ logs: [], head: 70000100n })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(res.empty, true)
+    assert.deepEqual(kv.writes, [])
+  })
+
+  it('returns ok:false (no throw) when KV is unavailable', async () => {
+    const res = await runBurnCollector({}, { chain: fakeChain({}), deadline: Date.now() + 60000 })
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'kv-unavailable')
+  })
+})

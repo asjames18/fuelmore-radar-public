@@ -20,6 +20,7 @@ import {
   DAY_KEY_PREFIX,
   META_KEY,
 } from './minter-collect.mjs'
+import { BURNS_KEY, BURN_META_KEY, BURN_METHODOLOGY } from './burn-collect.mjs'
 
 const WEI_PER_TOKEN = 1e18
 const DISPLAY_TOP_N = 10
@@ -120,6 +121,57 @@ function jsonResponse(payload, { status = 200, maxAge = 120 } = {}) {
 
 function kvUnavailable() {
   return jsonResponse({ error: 'Minter data unavailable' }, { status: 503, maxAge: 0 })
+}
+
+/**
+ * GET /api/burns
+ *   → { status: 'ok'|'collecting', days: [{date, fuel, eth, drips}],
+ *       totals: {fuel, eth, drips}, methodology, through_block, through_time }
+ *
+ * Daily FUEL buy-and-burn series. No USD figures: FUEL/USD moved too
+ * violently during the September 2026 crash to present responsibly.
+ */
+export async function handleBurnsRequest(request, kv) {
+  if (!kv || typeof kv.get !== 'function') return kvUnavailable()
+  try {
+    const stored = await kv.get(BURNS_KEY, 'json')
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    const base = {
+      methodology: BURN_METHODOLOGY,
+      through_block: meta?.last_block != null ? String(meta.last_block) : null,
+      through_time:
+        typeof meta?.last_run_ts === 'number' ? isoOrNull(meta.last_run_ts) : null,
+    }
+    if (!stored || !Array.isArray(stored.days) || stored.days.length === 0) {
+      return jsonResponse({
+        ...base,
+        status: 'collecting',
+        days: [],
+        totals: { fuel: null, eth: null, drips: null },
+      })
+    }
+    const days = stored.days
+      .filter((d) => d && typeof d.date === 'string')
+      .map((d) => ({
+        date: d.date,
+        fuel: numOrNull(d.fuel),
+        eth: numOrNull(d.eth),
+        drips: numOrNull(d.drips),
+      }))
+    const totals = stored.totals && typeof stored.totals === 'object' ? stored.totals : {}
+    return jsonResponse({
+      ...base,
+      status: 'ok',
+      days,
+      totals: {
+        fuel: numOrNull(totals.fuel),
+        eth: numOrNull(totals.eth),
+        drips: numOrNull(totals.drips),
+      },
+    })
+  } catch {
+    return kvUnavailable()
+  }
 }
 
 export async function handleMintersRequest(request, kv) {

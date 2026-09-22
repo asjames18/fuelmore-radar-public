@@ -20,6 +20,7 @@ import { SnapshotFreshness } from './components/SnapshotFreshness'
 import { FuelActivity } from './components/FuelActivity'
 import { MintersView } from './components/MintersView'
 import { DailyFlowCards } from './components/DailyFlowCards'
+import { BurnChart } from './components/BurnChart'
 import { PublicCockpit } from './components/PublicCockpit'
 import { CockpitView } from './components/CockpitView'
 import { Guide } from './components/Guide'
@@ -240,7 +241,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
             <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}
           {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk} onLookupWallet={lookupWallet}/>}
-          {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><FeePreview/>{Risk && <Risk data={data}/>}</>}
+          {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><BurnChart/><FeePreview/>{Risk && <Risk data={data}/>}</>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}
       </main>
