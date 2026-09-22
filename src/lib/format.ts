@@ -59,3 +59,14 @@ export const isSyncStale = (updatedAt: string | null | undefined) => {
   const ms = Date.parse(updatedAt)
   return Number.isFinite(ms) && Date.now() - ms > SYNC_STALE_AFTER_MS
 }
+
+/**
+ * Worker-owned freshness check: true when a worker-collected timestamp
+ * (epoch ms, e.g. the newest market-history point) is older than the
+ * staleness threshold. Null/unknown freshness is never "stale" — the UI
+ * shows nothing rather than guessing.
+ */
+export const isFreshnessStale = (atMs: number | null | undefined) => {
+  if (typeof atMs !== 'number' || !Number.isFinite(atMs)) return false
+  return Date.now() - atMs > SYNC_STALE_AFTER_MS
+}

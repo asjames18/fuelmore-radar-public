@@ -13,6 +13,10 @@ export function useRadarData() {
   const [data, setData] = useState<RadarData | null>(savedDashboard)
   const current = useRef(data)
   const [history, setHistory] = useState<HistoryPoint[]>(() => readHistory())
+  // Worker-owned freshness: epoch-ms of the newest point in the
+  // server-collected market series (market-history-v2, read via
+  // /api/market-history). Null until the first successful fetch.
+  const [marketFreshnessAt, setMarketFreshnessAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const busy = useRef(false)
@@ -43,7 +47,14 @@ export function useRadarData() {
       // (failover-guarded, per-point attribution) under the local series so
       // the Markets chart and the market cards can never disagree.
       void fetchRemoteHistory().then(remote => {
-        if (remote.length > 0) setHistory(current => mergeHistory(remote, current))
+        if (remote.length > 0) {
+          setHistory(current => mergeHistory(remote, current))
+          // Newest remote point first-hand: the server series is sorted
+          // ascending, so the last element is the freshest. Local
+          // browser-recorded points are deliberately excluded — they track
+          // the external pipeline's dashboard publish, not the worker.
+          setMarketFreshnessAt(remote[remote.length - 1].at)
+        }
       })
       setError(null)
       setNow(Date.now())
@@ -64,5 +75,5 @@ export function useRadarData() {
 
   const stale = data?.sources.some(s => s.retained || now - Date.parse(s.checkedAt) > DASHBOARD_MAX_AGE)
   const status = !data ? error ? 'error' : 'loading' : stale || error ? 'stale' : data.partial ? 'partial' : 'live'
-  return { data, history, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
+  return { data, history, marketFreshnessAt, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
 }

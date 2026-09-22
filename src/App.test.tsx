@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import App from './App'
 import type { RadarData } from './lib/types'
-const radarState = vi.hoisted(() => ({ data: null as RadarData | null, history: [] as unknown[], status: 'loading', error: null as string | null, refresh: vi.fn(), refreshing: false }))
+const radarState = vi.hoisted(() => ({ data: null as RadarData | null, history: [] as unknown[], marketFreshnessAt: null as number | null, status: 'loading', error: null as string | null, refresh: vi.fn(), refreshing: false }))
 vi.mock('./useRadarData', () => ({useRadarData:()=>radarState}))
 vi.mock('./lib/planner', () => ({fetchMintFee: () => Promise.resolve({ mintFeeEth: null, gasPrice: null }), fetchFeePair: () => Promise.resolve({ mintFeeEth: null, claimFeeEth: null, gasPrice: null, at: null, error: 'mocked' })}))
 afterEach(() => {
@@ -37,34 +37,42 @@ it('renders exactly one mobile donation section and one footer donation chip', (
  expect(within(footer as HTMLElement).getAllByRole('button', { name: /copy donation address/i }).length).toBe(1)
  expect(screen.getAllByRole('button', { name: /copy donation address/i }).length).toBe(2)
 })
-it('keeps public sync automatic with only a timestamp and cadence', () => {
+it('public header never shows an aging sync timestamp', () => {
  render(<App/>)
- expect(screen.getByText(/Last sync:/)).toBeTruthy()
- expect(screen.getByText('Scheduled every 15 minutes')).toBeTruthy()
+ expect(screen.queryByText(/Last sync:/)).toBeNull()
+ expect(screen.queryByText('Scheduled every 15 minutes')).toBeNull()
+ expect(screen.queryByText(/\d+[smh] ago/)).toBeNull()
  expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull()
  expect(screen.queryByText('SYNCING')).toBeNull()
  expect(screen.queryByText(/Saved data timestamps/)).toBeNull()
 })
-it('shows a calm paused-sync note when saved data is older than 6 hours', () => {
- const staleData = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: new Date(Date.now() - 8 * 3600_000).toISOString(), partial: false } as unknown as RadarData
- radarState.data = staleData
+it('shows a calm live dot while the worker market series is fresh', () => {
+ radarState.marketFreshnessAt = Date.now()
+ try {
+   render(<App/>)
+   expect(screen.getByLabelText('Market data is updating')).toBeTruthy()
+   expect(screen.queryByText('Syncing paused — showing last available data')).toBeNull()
+   expect(screen.queryByText(/Last sync:/)).toBeNull()
+ } finally {
+   radarState.marketFreshnessAt = null
+ }
+})
+it('shows the paused-sync note when the worker market series is older than 6 hours', () => {
+ radarState.marketFreshnessAt = Date.now() - 8 * 3600_000
  try {
    render(<App/>)
    expect(screen.getByText('Syncing paused — showing last available data')).toBeTruthy()
-   expect(screen.getByText(/Last sync:/)).toBeTruthy()
+   expect(screen.queryByText(/Last sync:/)).toBeNull()
+   expect(screen.queryByLabelText('Market data is updating')).toBeNull()
  } finally {
-   radarState.data = null
+   radarState.marketFreshnessAt = null
  }
 })
-it('hides the paused-sync note while saved data is fresh', () => {
- const freshData = { pairs: [], holders: {}, activity: [], sources: [], contracts: [], protocol: null, updatedAt: new Date().toISOString(), partial: false } as unknown as RadarData
- radarState.data = freshData
- try {
-   render(<App/>)
-   expect(screen.queryByText('Syncing paused — showing last available data')).toBeNull()
- } finally {
-   radarState.data = null
- }
+it('shows neither note nor dot while worker freshness is still unknown', () => {
+ render(<App/>)
+ expect(screen.queryByText('Syncing paused — showing last available data')).toBeNull()
+ expect(screen.queryByLabelText('Market data is updating')).toBeNull()
+ expect(screen.queryByText(/Last sync:/)).toBeNull()
 })
 
 it('overview hub shows one card per radar section and navigates', () => {

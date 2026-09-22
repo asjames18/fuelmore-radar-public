@@ -622,6 +622,9 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .public-sync { display: flex; flex-direction: column; gap: 3px; text-align: right; color: var(--muted); font-size: 12px; }
 .public-sync small { font-size: 11px; }
 .public-sync .sync-paused-note { color: var(--amber); }
+/* Calm worker-owned freshness indicator: shown only while the newest
+   server-collected market point is fresh. No timestamps, no text. */
+.public-sync .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(54,255,106,.45); align-self: flex-end; }
 @media (max-width: 620px) { .public-sync { font-size: 10px; max-width: 160px; } .public-sync small { font-size: 9px; } }
 .comparison-chart .chart-wrap { height: 340px; }
 .chart-toolbar { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; padding: 12px 15px; border-bottom: 1px solid var(--line); }

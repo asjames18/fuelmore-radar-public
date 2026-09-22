@@ -36,7 +36,7 @@ import { HolderBoard } from './components/HolderBoard'
 import { FeePreview } from './components/FeePreview'
 import { DonateChip } from './components/DonateChip'
 import { DEXSCREENER, PAIRS } from './lib/contracts'
-import { formatUsd, shortAddress, timeAgo, isSyncStale } from './lib/format'
+import { formatUsd, shortAddress, timeAgo, isFreshnessStale } from './lib/format'
 import type { HistoryPoint, RadarData } from './lib/types'
 import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
@@ -178,7 +178,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
   const Diagnostics = personal?.Diagnostics
   const Risk = personal?.Risk
   const Analytics = personal?.Analytics
-  const { data, history, status, error, refresh, refreshing } = useRadarData()
+  const { data, history, marketFreshnessAt, status, error, refresh, refreshing } = useRadarData()
   const [view, setView] = useState<View>(initialViewFromUrl)
   const [menuOpen, setMenuOpen] = useState(false)
   const [cockpitAddress, setCockpitAddress] = useState<string | null>(null)
@@ -213,9 +213,16 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         <div className="top-actions">
           {personal ? <><div className="updated"><span>Saved sync attempt</span><strong>{data ? timeAgo(data.updatedAt) : '—'}</strong></div>
           <button className="refresh" onClick={() => { track('refresh_clicked'); void refresh() }} disabled={refreshing}><RefreshCw size={16} className={refreshing ? 'spin' : ''}/><span>Refresh</span></button></> : <div className="public-sync" aria-live="polite">
-            <span title={data ? new Date(data.updatedAt).toISOString() : undefined}>Last sync: {data ? timeAgo(data.updatedAt) : 'waiting for data'}</span>
-            <small>Scheduled every 15 minutes</small>
-            {data && isSyncStale(data.updatedAt) && <small className="sync-paused-note">Syncing paused — showing last available data</small>}
+            {/*
+              Worker-owned freshness: the newest server-collected market point
+              (change-written + hourly heartbeat), independent of the external
+              pipeline's dashboard publish. Fresh → a calm live dot, no
+              timestamps. Stale (>6h) → the amber paused-sync note. Unknown →
+              nothing; never guess.
+            */}
+            {marketFreshnessAt != null && (isFreshnessStale(marketFreshnessAt)
+              ? <small className="sync-paused-note">Syncing paused — showing last available data</small>
+              : <span className="live-dot" role="img" aria-label="Market data is updating" title="Market data is updating" />)}
           </div>}
           <div className="read-only"><ShieldCheck size={16}/><span>Read-only</span></div>
         </div>
