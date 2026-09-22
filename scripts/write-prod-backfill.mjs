@@ -48,17 +48,18 @@ if (checkpoint.last_block !== snapshot.to_block) {
   throw new Error(`checkpoint (${checkpoint.last_block}) disagrees with snapshot (${snapshot.to_block}); refusing to write a mixed load`)
 }
 
-// Ordered key list: contracts (bulk, internal bookkeeping), then the
-// UI-read rows (minters, days). Meta is written separately, last.
+// Ordered key list: the UI-read rows (minters, days) FIRST so the site
+// works after chunk 1, then the internal contract bookkeeping rows.
+// Meta is written separately, last.
 const keys = []
-for (const [addr, stored] of checkpoint.prior.contracts) {
-  keys.push([`mintcontract:${addr.toLowerCase()}`, stored])
-}
 for (const row of snapshot.minters) {
   keys.push([`minter:${String(row.wallet).toLowerCase()}`, row])
 }
 for (const day of snapshot.days) {
   keys.push([`flows:daily:${day.date}`, day])
+}
+for (const [addr, stored] of checkpoint.prior.contracts) {
+  keys.push([`mintcontract:${addr.toLowerCase()}`, stored])
 }
 const total = keys.length
 console.log(`backfill load: ${checkpoint.prior.contracts.length} contracts, ${snapshot.minters.length} minters, ${snapshot.days.length} days = ${total} row keys (+ meta last)`)
