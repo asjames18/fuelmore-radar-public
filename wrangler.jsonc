@@ -19,6 +19,12 @@
       "id": "efbf0ca8482f4ec487a23974a66c170a"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "e30ac5d4-9f16-4d29-82f0-c4bf48befeee"
+    }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

@@ -24,6 +24,7 @@ import {
   TOKENS,
   checkQuoteFreshness,
 } from './price-sources.mjs'
+import { storeGetJson, storePut } from './d1-store.mjs'
 
 // Re-exported for tests and any existing importers.
 export {
@@ -146,10 +147,10 @@ function storedPoints(raw) {
   return []
 }
 
-export async function readMarketHistory(kv) {
-  // kv.get errors propagate so callers can distinguish "KV unavailable" from
+export async function readMarketHistory(env) {
+  // Storage errors propagate so callers can distinguish "unavailable" from
   // "no history yet"; malformed payloads still degrade to an empty list.
-  const raw = await kv.get(MARKET_HISTORY_KEY, 'json')
+  const raw = await storeGetJson(env, MARKET_HISTORY_KEY)
   const cutoff = Math.floor(Date.now() / 1000) - MARKET_HISTORY_MAX_AGE_SECONDS
   const byTime = new Map()
   for (const point of storedPoints(raw)) {
@@ -158,13 +159,14 @@ export async function readMarketHistory(kv) {
   return [...byTime.values()].sort((a, b) => a.t - b.t).slice(-MARKET_HISTORY_MAX_POINTS)
 }
 
-export async function appendMarketHistory(kv, point) {
-  const history = await readMarketHistory(kv)
+export async function appendMarketHistory(env, point) {
+  const history = await readMarketHistory(env)
   const last = history.at(-1)
   // Never record a duplicate or out-of-order observation.
   if (last && point.t <= last.t) return history
   const next = [...history, point].slice(-MARKET_HISTORY_MAX_POINTS)
-  await kv.put(
+  await storePut(
+    env,
     MARKET_HISTORY_KEY,
     JSON.stringify({ updatedAt: new Date(point.t * 1000).toISOString(), points: next }),
   )
@@ -217,9 +219,9 @@ export async function corroborateDeviation(side, point, sources, fetchImpl, slee
 
 /** Scheduled entry point: validate, append, and prune. Failures keep history untouched. */
 export async function runMarketSnapshot(env, options = {}) {
-  if (!env?.ACTIVITY || typeof env.ACTIVITY.get !== 'function' || typeof env.ACTIVITY.put !== 'function') {
-    console.error('Market snapshot skipped: ACTIVITY KV binding unavailable')
-    return { ok: false, reason: 'kv-unavailable' }
+  if (!env?.DB || typeof env.DB.prepare !== 'function') {
+    console.error('Market snapshot skipped: D1 binding unavailable')
+    return { ok: false, reason: 'd1-unavailable' }
   }
   // DEXPAPRIKA_API_KEY is a Worker secret set in the Cloudflare dashboard.
   // An explicit options.dexpaprikaApiKey (tests, manual runs) wins. The raw
@@ -234,7 +236,7 @@ export async function runMarketSnapshot(env, options = {}) {
   console.log(`market snapshot: DexPaprika ${merged.dexpaprikaApiKey ? 'keyed' : 'keyless'} mode`)
   let history
   try {
-    history = await readMarketHistory(env.ACTIVITY)
+    history = await readMarketHistory(env)
   } catch (error) {
     console.error('Market snapshot failed: history read failed:', error instanceof Error ? error.message : error)
     return { ok: false, reason: 'history-unreadable' }
@@ -269,9 +271,9 @@ export async function runMarketSnapshot(env, options = {}) {
     }
   }
   try {
-    await appendMarketHistory(env.ACTIVITY, point)
+    await appendMarketHistory(env, point)
   } catch (error) {
-    // KV read/write failed: never write a partial entry, keep history untouched.
+    // Storage read/write failed: never write a partial entry, keep history untouched.
     console.error('Market snapshot storage failed:', error instanceof Error ? error.message : error)
     return { ok: false, reason: 'storage-failed' }
   }

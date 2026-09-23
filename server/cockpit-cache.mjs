@@ -2,7 +2,7 @@
  *
  * The Worker performs the same multicall reads the browser client does
  * (Multicall3.aggregate3 over eth_call, pinned to one block), builds the
- * finished CockpitSnapshot, and caches it in a dedicated KV namespace.
+ * finished CockpitSnapshot, and caches it in D1 (snapshots table).
  *
  * Data-integrity rules (mirrored from src/lib/cockpit.ts):
  * - failed reads stay unknown: a failed subcall marks that slot incomplete,
@@ -13,6 +13,7 @@
  * Pure .mjs with no npm imports so the Worker bundle and node --test both run it.
  */
 import { resolveRpcUrl } from './rpc-config.mjs'
+import { storeGet, storePut } from './d1-store.mjs'
 
 export const COCKPIT_CHAIN_ID = 4663
 export const FUEL_TOKEN = '0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'
@@ -460,13 +461,13 @@ export async function handleCockpitRequest(request, env) {
       headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
     })
   }
-  const kv = env?.COCKPIT_CACHE
   const cacheKey = `cockpit:v1:${address.toLowerCase()}`
-  if (kv) {
-    try {
-      const cached = await kv.get(cacheKey)
-      if (typeof cached === 'string' && cached) {
-        return new Response(cached, {
+  // D1-backed cache with manual TTL (updated_at checked on read).
+  try {
+    if (env.DB) {
+      const row = await env.DB.prepare('SELECT value, updated_at FROM snapshots WHERE key = ?').bind(cacheKey).first()
+      if (row?.value && Date.now() - row.updated_at < COCKPIT_CACHE_TTL_SECONDS * 1000) {
+        return new Response(row.value, {
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
@@ -475,16 +476,21 @@ export async function handleCockpitRequest(request, env) {
           },
         })
       }
-    } catch { /* cache read failures fall through to compute */ }
-  }
+    }
+  } catch { /* cache read failures fall through to compute */ }
 
   // Abuse guard: cap uncached computations per client IP per hour.
   const ip = (request.headers.get('CF-Connecting-IP') || 'unknown').slice(0, 128)
   const budgetKey = `cockpit:budget:v1:${ip}`
   let used = 0
-  if (kv) {
-    try { used = Number(await kv.get(budgetKey)) || 0 } catch { /* treat as unused */ }
-  }
+  try {
+    const rawBudget = await storeGet(env, budgetKey)
+    // Budget entries older than an hour are treated as unused.
+    if (rawBudget) {
+      const parsed = JSON.parse(rawBudget)
+      if (parsed && Date.now() - parsed.at < 3600_000) used = Number(parsed.used) || 0
+    }
+  } catch { /* treat as unused */ }
   if (used >= COCKPIT_COMPUTE_CAP_PER_HOUR) {
     return Response.json({ error: 'Cockpit compute limit reached; retry later' }, {
       status: 429,
@@ -509,12 +515,10 @@ export async function handleCockpitRequest(request, env) {
   }
 
   const body = serializeCockpitSnapshot(snapshot)
-  if (kv) {
-    try {
-      await kv.put(cacheKey, body, { expirationTtl: COCKPIT_CACHE_TTL_SECONDS })
-      await kv.put(budgetKey, String(used + 1), { expirationTtl: 3600 })
-    } catch { /* cache write failures must not fail the request */ }
-  }
+  try {
+    await storePut(env, cacheKey, body)
+    await storePut(env, budgetKey, JSON.stringify({ used: used + 1, at: Date.now() }))
+  } catch { /* cache write failures must not fail the request */ }
   return new Response(body, {
     headers: {
       'Content-Type': 'application/json',

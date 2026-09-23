@@ -3,6 +3,7 @@
  * KV is an optional copy of a published report, not an independently advanced index.
  */
 import { MATURITY_DAY_COUNT } from './maturity.mjs'
+import { storeGetJson } from './d1-store.mjs'
 export const TOKEN = '0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'
 export const REPORT_KEY = 'fuel-activity-report-v1'
 export const STALE_AFTER_SECONDS = 3_600
@@ -49,9 +50,9 @@ export function activityEnvelope(report, extra = {}) {
 }
 
 export async function loadReport(env) {
-  // Independently tolerate KV/asset failures and compare coverage, not fetch time.
+  // Independently tolerate storage/asset failures and compare coverage, not fetch time.
   const candidates = await Promise.all([
-    (async () => { try { return { report: await env.ACTIVITY?.get(REPORT_KEY, 'json'), source: 'kv' } } catch { return null } })(),
+    (async () => { try { return { report: await storeGetJson(env, REPORT_KEY), source: 'd1' } } catch { return null } })(),
     (async () => { try {
       const response = await env.ASSETS?.fetch(new Request('https://assets.local/fuel-activity.json'))
       return response?.ok ? { report: await response.json(), source: 'assets' } : null

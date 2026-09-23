@@ -3,10 +3,11 @@
  * Counts only: event names are aggregated per UTC day. Wallet addresses, IPs,
  * user agents, and any other identifier are never read, stored, or forwarded.
  *
- * Aggregation happens in Worker memory per isolate. KV (the existing ACTIVITY
- * namespace) is written at most once every 5 minutes per isolate, so worst
- * case throughput is ~288 writes/day — well inside the 1,000/day free tier.
+ * Aggregation happens in Worker memory per isolate. D1 (the snapshots table)
+ * is written at most once every 5 minutes per isolate.
  */
+
+import { storeGet, storePut } from './d1-store.mjs'
 
 export const ANALYTICS_EVENTS = [
   'view_selected',
@@ -42,7 +43,7 @@ export async function flushAnalytics(env) {
   const key = `${ANALYTICS_KEY_PREFIX}${state.date}`
   let stored = {}
   try {
-    const raw = await env.ACTIVITY?.get(key)
+    const raw = await storeGet(env, key)
     if (raw) {
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) stored = parsed
@@ -59,7 +60,7 @@ export async function flushAnalytics(env) {
   state.lastFlush = Date.now()
   if (Object.keys(stored).length) {
     try {
-      await env.ACTIVITY?.put(key, JSON.stringify(stored))
+      await storePut(env, key, JSON.stringify(stored))
     } catch {
       /* Analytics never breaks the request path. */
     }
@@ -102,7 +103,7 @@ export async function handleAnalyticsSummary(request, env) {
     const date = new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10)
     let counts = {}
     try {
-      const raw = await env.ACTIVITY?.get(`${ANALYTICS_KEY_PREFIX}${date}`)
+      const raw = await storeGet(env, `${ANALYTICS_KEY_PREFIX}${date}`)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) counts = parsed

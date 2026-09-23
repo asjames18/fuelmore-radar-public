@@ -65,6 +65,6 @@ jobs:
       - run: npm run lint
       - run: npm run build
 `)
-await put('wrangler.jsonc',JSON.stringify({name:'fuelmore-radar-public',main:'server/worker.mjs',compatibility_date:'2026-09-15',triggers:{crons:['*/15 * * * *']},ratelimits:[{name:'RPC_RATE_LIMITER',namespace_id:'46631902',simple:{limit:600,period:60}}],kv_namespaces:[{binding:'ACTIVITY',id:'REPLACE_WITH_PUBLIC_KV_ID'},{binding:'COCKPIT_CACHE',id:'efbf0ca8482f4ec487a23974a66c170a'}],assets:{directory:'./dist-public',binding:'ASSETS',not_found_handling:'single-page-application',run_worker_first:['/rpc*','/api/*']}},null,2)+'\n')
+await put('wrangler.jsonc',JSON.stringify({name:'fuelmore-radar-public',main:'server/worker.mjs',compatibility_date:'2026-09-15',triggers:{crons:['*/15 * * * *']},ratelimits:[{name:'RPC_RATE_LIMITER',namespace_id:'46631902',simple:{limit:600,period:60}}],kv_namespaces:[{binding:'ACTIVITY',id:'REPLACE_WITH_PUBLIC_KV_ID'},{binding:'COCKPIT_CACHE',id:'efbf0ca8482f4ec487a23974a66c170a'}],d1_databases:[{binding:'DB',database_id:'e30ac5d4-9f16-4d29-82f0-c4bf48befeee'}],assets:{directory:'./dist-public',binding:'ASSETS',not_found_handling:'single-page-application',run_worker_first:['/rpc*','/api/*']}},null,2)+'\n')
 await writeFile(join(output,'public-core-manifest.json'),JSON.stringify(manifest,null,2)+'\n')
 console.log(`Public candidate prepared: ${output}`)

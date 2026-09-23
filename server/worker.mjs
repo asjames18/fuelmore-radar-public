@@ -3,6 +3,7 @@ import { loadReport, activityEnvelope } from './activity-edge.mjs'
 import { findDisallowedRpcMethods } from './rpc-allowlist.mjs'
 import { handleAnalyticsEvent, handleAnalyticsSummary } from './analytics.mjs'
 import { handleCockpitRequest } from './cockpit-cache.mjs'
+import { storeGet } from './d1-store.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
@@ -201,7 +202,7 @@ export default {
     if (url.pathname === '/api/dashboard') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 })
       try {
-        const snapshot = await env.ACTIVITY?.get('dashboard-snapshot-v1')
+        const snapshot = await storeGet(env, 'dashboard-snapshot-v1')
         if (snapshot) return new Response(snapshot, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=30' } })
       } catch { /* Clients keep their saved snapshot with its original timestamps. */ }
       return Response.json({ error: 'Saved dashboard unavailable; waiting for scheduled sync' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
@@ -215,8 +216,7 @@ export default {
     if (url.pathname === '/api/market-history') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 })
       try {
-        if (!env.ACTIVITY || typeof env.ACTIVITY.get !== 'function') throw new Error('KV unavailable')
-        const points = await readMarketHistory(env.ACTIVITY)
+        const points = await readMarketHistory(env)
         const last = points.at(-1)
         return Response.json(
           { updatedAt: last ? new Date(last.t * 1000).toISOString() : null, points },
