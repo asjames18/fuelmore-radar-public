@@ -34,10 +34,8 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
   const enough = points.length>1
   // Visible per-point provenance: the latest visible observation names the
   // upstream source (and its quote time) when the collector recorded it, or
-  // says it was recorded locally. The chart reads the merged worker+local
-  // history while the token cards read the dashboard pipeline's pairs, so
-  // they can briefly disagree; feeding the cards from worker-owned history
-  // is an open Antonio decision.
+  // says it was recorded locally. Cards and chart read the same worker-owned
+  // series, so they cannot disagree on price.
   const latestAttribution = (() => {
     const p = points.at(-1)
     if (!enough || !p) return ''
