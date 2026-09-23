@@ -155,3 +155,77 @@ export function mergeHistory(remote: HistoryPoint[], local: HistoryPoint[]): His
   persistHistory(merged)
   return [...merged]
 }
+
+/**
+ * Per-side quote derived from the worker-owned market series — the same feed
+ * that backs the Markets chart. Feeding the token cards from these quotes
+ * means cards and chart cannot disagree on price.
+ */
+export type SideQuote = {
+  /** Newest worker-observed price for the side; null when the series has none. */
+  priceUsd: number | null
+  /** Newest worker-observed liquidity for the side; null when the series has none. */
+  liquidityUsd: number | null
+  /**
+   * Percent change between the newest price and the newest series point at or
+   * before 24h earlier. Stays null when the series cannot support the
+   * comparison — never invented from an incompatible feed.
+   */
+  change24h: number | null
+  /** Timestamp (ms) of the point the price came from. */
+  observedAt: number | null
+  /** Attribution of the price point (e.g. 'dexscreener'), when the server sent one. */
+  source: string | null
+}
+
+const SIDE_FIELDS = {
+  FUEL: { price: 'fuelPrice', liquidity: 'fuelLiquidity', source: 'fuelSource' },
+  MORE: { price: 'morePrice', liquidity: 'moreLiquidity', source: 'moreSource' },
+} as const
+
+function pickSide(points: HistoryPoint[], key: 'FUEL' | 'MORE'): { pricePoint: HistoryPoint | null; liquidityPoint: HistoryPoint | null } {
+  const fields = SIDE_FIELDS[key]
+  let pricePoint: HistoryPoint | null = null
+  let liquidityPoint: HistoryPoint | null = null
+  // Newest first: each field takes its newest non-null value independently.
+  for (let i = points.length - 1; i >= 0; i--) {
+    const point = points[i]
+    if (!pricePoint && point[fields.price] != null) pricePoint = point
+    if (!liquidityPoint && point[fields.liquidity] != null) liquidityPoint = point
+    if (pricePoint && liquidityPoint) break
+  }
+  return { pricePoint, liquidityPoint }
+}
+
+/**
+ * Derive the freshest per-side quotes from the worker-owned series. Callers
+ * should pass only server-collected (remote) points — never the merged
+ * series, whose browser-recorded points track the external dashboard
+ * pipeline the cards are being moved away from.
+ */
+export function latestQuotes(remote: HistoryPoint[]): Record<'FUEL' | 'MORE', SideQuote> {
+  const side = (key: 'FUEL' | 'MORE'): SideQuote => {
+    const fields = SIDE_FIELDS[key]
+    const { pricePoint, liquidityPoint } = pickSide(remote, key)
+    const price = pricePoint?.[fields.price] ?? null
+    let change24h: number | null = null
+    if (pricePoint && price != null && price > 0) {
+      const target = pricePoint.at - 24 * 60 * 60 * 1000
+      let reference: HistoryPoint | null = null
+      for (let i = remote.length - 1; i >= 0; i--) {
+        const candidate = remote[i]
+        if (candidate.at <= target && candidate[fields.price] != null) { reference = candidate; break }
+      }
+      const referencePrice = reference?.[fields.price] ?? null
+      if (referencePrice != null && referencePrice > 0) change24h = ((price - referencePrice) / referencePrice) * 100
+    }
+    return {
+      priceUsd: price,
+      liquidityUsd: liquidityPoint?.[fields.liquidity] ?? null,
+      change24h,
+      observedAt: pricePoint?.at ?? null,
+      source: pricePoint?.[fields.source] ?? null,
+    }
+  }
+  return { FUEL: side('FUEL'), MORE: side('MORE') }
+}

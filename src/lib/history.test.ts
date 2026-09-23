@@ -131,3 +131,55 @@ describe('remote market history', () => {
     expect(vi.mocked(localStorage.setItem)).toHaveBeenCalled()
   })
 })
+
+describe('latestQuotes', () => {
+  const day = 24 * 60 * 60 * 1000
+  const pt = (at: number, over: Partial<Record<string, number | string | null>>) => ({ at, fuelPrice: null, morePrice: null, fuelLiquidity: null, moreLiquidity: null, ...over })
+
+  it('takes each field from its newest non-null point per side', async () => {
+    const { latestQuotes } = await import('./history')
+    const remote = [
+      pt(now - day, { fuelPrice: 4, fuelLiquidity: 40, fuelSource: 'dexscreener' }),
+      pt(now - 900_000, { fuelPrice: null, fuelLiquidity: 55 }),
+      pt(now, { fuelPrice: 5, fuelLiquidity: null }),
+    ]
+    const quotes = latestQuotes(remote)
+    expect(quotes.FUEL.priceUsd).toBe(5)
+    expect(quotes.FUEL.liquidityUsd).toBe(55)
+    expect(quotes.FUEL.observedAt).toBe(now)
+    expect(quotes.MORE.priceUsd).toBeNull()
+  })
+
+  it('computes 24h change against the newest point at or before 24h earlier', async () => {
+    const { latestQuotes } = await import('./history')
+    const remote = [
+      pt(now - day - 60_000, { fuelPrice: 4 }),
+      pt(now - day + 60_000, { fuelPrice: 100 }),
+      pt(now, { fuelPrice: 5 }),
+    ]
+    const { change24h } = latestQuotes(remote).FUEL
+    expect(change24h).toBeCloseTo(((5 - 4) / 4) * 100, 10)
+  })
+
+  it('keeps change24h null when the series cannot support the comparison', async () => {
+    const { latestQuotes } = await import('./history')
+    const remote = [pt(now - 3_600_000, { fuelPrice: 4 }), pt(now, { fuelPrice: 5 })]
+    expect(latestQuotes(remote).FUEL.change24h).toBeNull()
+    expect(latestQuotes([]).FUEL.priceUsd).toBeNull()
+    expect(latestQuotes([]).MORE.priceUsd).toBeNull()
+  })
+
+  it('keeps sides independent and carries attribution', async () => {
+    const { latestQuotes } = await import('./history')
+    const remote = [
+      pt(now - day, { morePrice: 2, moreSource: 'geckoterminal' }),
+      pt(now, { fuelPrice: 5, fuelSource: 'dexscreener' }),
+    ]
+    const quotes = latestQuotes(remote)
+    expect(quotes.FUEL.priceUsd).toBe(5)
+    expect(quotes.FUEL.source).toBe('dexscreener')
+    expect(quotes.MORE.priceUsd).toBe(2)
+    expect(quotes.MORE.source).toBe('geckoterminal')
+    expect(quotes.MORE.observedAt).toBe(now - day)
+  })
+})

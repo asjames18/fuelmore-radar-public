@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchRadarData } from './lib/api'
-import { readHistory, recordHistory, fetchRemoteHistory, mergeHistory } from './lib/history'
+import { readHistory, recordHistory, fetchRemoteHistory, mergeHistory, latestQuotes, type SideQuote } from './lib/history'
 import { decodeDashboard, encodeDashboard, mergeDashboard, DASHBOARD_MAX_AGE } from './lib/dashboardSnapshot'
 import { storageKey } from './lib/storage'
 import type { HistoryPoint, RadarData } from './lib/types'
@@ -17,6 +17,10 @@ export function useRadarData() {
   // server-collected market series (market-history-v2, read via
   // /api/market-history). Null until the first successful fetch.
   const [marketFreshnessAt, setMarketFreshnessAt] = useState<number | null>(null)
+  // Token-card quotes taken from the same worker-owned series the chart
+  // reads, so the cards and the chart cannot disagree on price. Null until
+  // the first successful fetch; while null the cards show dashboard values.
+  const [quotes, setQuotes] = useState<Record<'FUEL' | 'MORE', SideQuote> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const busy = useRef(false)
@@ -44,8 +48,9 @@ export function useRadarData() {
       const market = next.sources.find(s => s.name === 'Dexscreener markets')
       if (market?.status === 'available' && !market.retained) setHistory(recordHistory(next.pairs, Date.parse(market.checkedAt)))
       // Progressive enhancement: fold the server-collected market history
-      // (failover-guarded, per-point attribution) under the local series so
-      // the Markets chart and the market cards can never disagree.
+      // (failover-guarded, per-point attribution) under the local series for
+      // the Markets chart, and derive the token-card quotes from the same
+      // worker-owned feed so cards and chart agree on price.
       void fetchRemoteHistory().then(remote => {
         if (remote.length > 0) {
           setHistory(current => mergeHistory(remote, current))
@@ -54,6 +59,7 @@ export function useRadarData() {
           // browser-recorded points are deliberately excluded — they track
           // the external pipeline's dashboard publish, not the worker.
           setMarketFreshnessAt(remote[remote.length - 1].at)
+          setQuotes(latestQuotes(remote))
         }
       })
       setError(null)
@@ -75,5 +81,5 @@ export function useRadarData() {
 
   const stale = data?.sources.some(s => s.retained || now - Date.parse(s.checkedAt) > DASHBOARD_MAX_AGE)
   const status = !data ? error ? 'error' : 'loading' : stale || error ? 'stale' : data.partial ? 'partial' : 'live'
-  return { data, history, marketFreshnessAt, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
+  return { data, history, marketFreshnessAt, quotes, status, error: error ?? (data?.partial ? 'Some sources could not refresh. Saved values retain their original observation time; unavailable values remain —.' : null), refresh, refreshing }
 }

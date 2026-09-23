@@ -38,6 +38,7 @@ import { DonateChip } from './components/DonateChip'
 import { DEXSCREENER, PAIRS } from './lib/contracts'
 import { formatUsd, shortAddress, timeAgo, isFreshnessStale } from './lib/format'
 import type { HistoryPoint, RadarData } from './lib/types'
+import type { SideQuote } from './lib/history'
 import { useRadarData } from './useRadarData'
 import { track } from './lib/analytics'
 import './styles.css'
@@ -124,9 +125,9 @@ function Sidebar({ view, setView, open, close, items }: { view: View; setView: (
   </>
 }
 
-function TokenCards({ data }: { data: RadarData }) {
+function TokenCards({ data, quotes }: { data: RadarData; quotes: Record<'FUEL' | 'MORE', SideQuote> | null }) {
   return <div className="market-grid">
-    {data.pairs.map((pair) => <MarketCard key={pair.pairAddress} pair={pair} holders={data.holders[pair.symbol]}/>) }
+    {data.pairs.map((pair) => <MarketCard key={pair.pairAddress} pair={pair} holders={data.holders[pair.symbol]} quote={quotes?.[pair.symbol] ?? null}/>) }
   </div>
 }
 
@@ -178,7 +179,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
   const Diagnostics = personal?.Diagnostics
   const Risk = personal?.Risk
   const Analytics = personal?.Analytics
-  const { data, history, marketFreshnessAt, status, error, refresh, refreshing } = useRadarData()
+  const { data, history, marketFreshnessAt, quotes, status, error, refresh, refreshing } = useRadarData()
   const [view, setView] = useState<View>(initialViewFromUrl)
   const [menuOpen, setMenuOpen] = useState(false)
   const [cockpitAddress, setCockpitAddress] = useState<string | null>(null)
@@ -242,7 +243,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
         {view === 'Protocol' && <FuelActivity/>}
         {!data ? <div className="loading-grid" aria-label="Loading dashboard"><div/><div/><div/><div/></div> : <>
           {view === 'Overview' && <>
-            <TokenCards data={data}/>
+            <TokenCards data={data} quotes={quotes}/>
             <OverviewStats protocol={data.protocol} protocolObservation={data.protocolObservation} onSeeProtocol={() => selectView('Protocol')} onSeeMarkets={() => selectView('Markets')}/>
             <ExploreRadar select={selectView}/>
             {Analytics && <Analytics/>}
