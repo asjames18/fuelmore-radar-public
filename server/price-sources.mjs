@@ -36,7 +36,7 @@ const GECKOTERMINAL_API = 'https://api.geckoterminal.com/api/v2/networks/robinho
 const GECKOTERMINAL_ACCEPT = 'application/json;version=20230302'
 const DEXPAPRIKA_API = 'https://api.dexpaprika.com/networks/robinhood/pools'
 const DEX_PAIR_API = 'https://api.dexscreener.com/latest/dex/pairs/robinhood'
-const DEX_TOKEN_API = 'https://api.dexscreener.com/latest/dex/tokens'
+export const DEX_TOKEN_API = 'https://api.dexscreener.com/latest/dex/tokens'
 
 export const EXPECTED_CHAIN_ID = 'robinhood'
 export const EXPECTED_NETWORK_ID = 'robinhood'

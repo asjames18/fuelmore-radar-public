@@ -4,6 +4,7 @@ import { findDisallowedRpcMethods } from './rpc-allowlist.mjs'
 import { handleAnalyticsEvent, handleAnalyticsSummary } from './analytics.mjs'
 import { handleCockpitRequest } from './cockpit-cache.mjs'
 import { storeGet } from './d1-store.mjs'
+import { handleMintersRequest, handleBurnsRequest, handleFlowsDailyRequest } from './minter-api.mjs'
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
@@ -240,6 +241,21 @@ export default {
     if (url.pathname === '/api/cockpit') {
       if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
       return handleCockpitRequest(request, env)
+    }
+
+    if (url.pathname === '/api/minters') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleMintersRequest(request, env.ACTIVITY)
+    }
+
+    if (url.pathname === '/api/burns') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleBurnsRequest(request, env.ACTIVITY)
+    }
+
+    if (url.pathname === '/api/flows/daily') {
+      if (request.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET' } })
+      return handleFlowsDailyRequest(request, env.ACTIVITY)
     }
 
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/rpc')) return Response.json({ error: 'Not found' }, { status: 404 })
