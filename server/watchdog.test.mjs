@@ -6,6 +6,7 @@ const T0 = Date.parse('2026-09-21T14:30:00.000Z')
 const iso = minutesAgo => new Date(T0 - minutesAgo * 60_000).toISOString()
 const dashboard = minutesAgo => JSON.stringify({ version: 1, chainId: 4663, data: { updatedAt: iso(minutesAgo) } })
 const activity = minutesAgo => JSON.stringify({ generatedAt: iso(minutesAgo) })
+const market = minutesAgo => JSON.stringify({ updatedAt: iso(minutesAgo) })
 
 function makeKv(values = {}) {
   const store = new Map(Object.entries(values))
@@ -37,10 +38,10 @@ function makeEnv(kv, token = 'ghp-test-token') {
 const base = () => ({ now: () => T0, fetchImpl: async () => { throw new Error('must not fetch') } })
 
 it('does nothing when both snapshots are fresh', async () => {
-  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25) })
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25), [WATCHDOG.marketKey]: market(10) })
   let fetched = false
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 10 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 
@@ -115,7 +116,7 @@ it('never throws when the GitHub API call fails', async () => {
 
 it('reports unavailable when no storage binding exists', async () => {
   const result = await checkPipelineFreshness({}, base())
-  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'storage-unavailable' })
+  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' })
 })
 
 it('prefers D1 snapshots over stale KV mirrors', async () => {
@@ -123,11 +124,22 @@ it('prefers D1 snapshots over stale KV mirrors', async () => {
   // only, so KV mirrors are permanently stale. The watchdog must read the
   // store the publisher actually writes, not KV alone.
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(3000), [WATCHDOG.activityKey]: activity(3000) })
-  const db = makeDb({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25) })
+  const db = makeDb({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25), [WATCHDOG.marketKey]: market(12) })
   let fetched = false
   const env = { ...makeEnv(kv), DB: db }
   const result = await checkPipelineFreshness(env, { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 12 }, reason: 'fresh' })
+  assert.equal(fetched, false)
+})
+
+it('logs a stale worker market snapshot without dispatching for it', async () => {
+  // The forced dispatch revives the GitHub activity pipeline, which cannot
+  // fix the Worker's own market collection. A quiet market cron must stay
+  // diagnosable in the logged ages, never trigger a dispatch.
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25), [WATCHDOG.marketKey]: market(300) })
+  let fetched = false
+  const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 300 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 

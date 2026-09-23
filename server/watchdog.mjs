@@ -4,6 +4,9 @@
 // up to 7h), while the Worker's own cron fires reliably every 15 minutes. This
 // watchdog checks how old the two pipeline snapshots are and forces a
 // workflow run via `workflow_dispatch` only when the pipeline has gone quiet.
+// It also logs the age of the Worker's own market-history collection so a
+// quiet market cron stays diagnosable (market age never triggers a dispatch:
+// the GitHub workflow cannot revive the Worker's cron).
 // The staleness threshold is set well above GitHub's observed ~3h cadence so
 // the watchdog fires a few extra runs per month at most (zero new spend), and
 // a cooldown prevents duplicate dispatches while a forced run is in flight.
@@ -32,6 +35,11 @@ export const WATCHDOG = {
   cooldownMinutes: 60,
   dashboardKey: 'dashboard-snapshot-v1',
   activityKey: 'fuel-activity-report-v1',
+  // Worker-collected market history (canonical key: MARKET_HISTORY_KEY in
+  // market-collect.mjs). Included in the check result for diagnosability only:
+  // the forced dispatch revives the GitHub activity pipeline, which cannot fix
+  // the Worker's own collection, so market age never triggers a dispatch.
+  marketKey: 'market-history-v2',
   lastDispatchKey: 'watchdog-last-dispatch',
   secretName: 'GITHUB_DISPATCH_TOKEN',
 }
@@ -56,6 +64,8 @@ function extractTimestamp(raw, pick) {
 
 const dashboardTimestamp = raw => extractTimestamp(raw, parsed => parsed?.data?.updatedAt)
 const activityTimestamp = raw => extractTimestamp(raw, parsed => parsed?.generatedAt)
+// Worker-collected market history stores updatedAt at the top level.
+const marketTimestamp = raw => extractTimestamp(raw, parsed => parsed?.updatedAt)
 
 async function readAgeMinutes(env, key, extract, nowMs) {
   try {
@@ -99,12 +109,15 @@ export async function checkPipelineFreshness(env, options = {}) {
   const hasDb = env?.DB != null && typeof env.DB.prepare === 'function'
   const hasKv = env?.ACTIVITY != null && typeof env.ACTIVITY.get === 'function'
   if (!hasDb && !hasKv) {
-    return { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'storage-unavailable' }
+    return { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' }
   }
 
   const dashboardAge = await readAgeMinutes(env, config.dashboardKey, dashboardTimestamp, nowMs)
   const activityAge = await readAgeMinutes(env, config.activityKey, activityTimestamp, nowMs)
-  const ages = { dashboard: dashboardAge, activity: activityAge }
+  // Diagnostic only: the Worker's own market collection is not revived by a
+  // GitHub dispatch, so this age never feeds the stale/dispatch decision.
+  const marketAge = await readAgeMinutes(env, config.marketKey, marketTimestamp, nowMs)
+  const ages = { dashboard: dashboardAge, activity: activityAge, market: marketAge }
   const stale = !Number.isFinite(dashboardAge) || dashboardAge > config.staleMinutes || !Number.isFinite(activityAge) || activityAge > config.staleMinutes
 
   if (!stale) return { checked: true, stale: false, dispatched: false, ages, reason: 'fresh' }
