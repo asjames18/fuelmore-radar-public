@@ -47,8 +47,15 @@
       "/api/*"
     ]
   },
-  // No ANALYTICS_PRIVATE here: the private usage-summary endpoint stays 404 on
-  // the public worker. (The dev config sets ANALYTICS_PRIVATE=1 for local/dev use.)
+  // Explicitly pin the private-summary flag OFF on the public worker. A stale
+  // ANALYTICS_PRIVATE=1 can linger on the worker from the pre-dedicated-config
+  // era (wrangler does not reliably clear vars absent from the config), which
+  // re-opens /api/analytics/summary publicly. Pinning '0' keeps the gate in
+  // server/analytics.mjs closed regardless of worker-side leftovers.
+  // (The dev config sets ANALYTICS_PRIVATE=1 for local/dev use.)
+  "vars": {
+    "ANALYTICS_PRIVATE": "0"
+  },
   "ratelimits": [
     {
       "name": "RPC_RATE_LIMITER",
