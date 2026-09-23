@@ -15,7 +15,6 @@ import {
   serializeCockpitSnapshot,
   computeCockpitSnapshot,
   handleCockpitRequest,
-  COCKPIT_CACHE_TTL_SECONDS,
   COCKPIT_COMPUTE_CAP_PER_HOUR,
 } from './cockpit-cache.mjs'
 
@@ -43,15 +42,31 @@ function agg3Result(items) {
 const mintWords = (user, maturity) =>
   '0x' + '00'.repeat(12) + user.slice(2) + w(30) + w(maturity) + w(7) + w(2) + w(100)
 
-function makeKv(initial = {}) {
-  const store = new Map(Object.entries(initial))
-  const puts = []
-  return {
-    store,
-    puts,
-    get: async k => (store.has(k) ? store.get(k) : null),
-    put: async (k, v, opts) => { puts.push({ k, v, opts }); store.set(k, v) },
+/** Mock D1 binding: rows hold { value, updated_at } (plain strings are wrapped); run() records bind params. */
+function makeDb(initial = {}) {
+  const rows = new Map(Object.entries(initial))
+  const writes = []
+  const db = {
+    rows,
+    writes,
+    prepare() {
+      return {
+        bind: (...params) => ({
+          first: async () => {
+            if (!rows.has(params[0])) return null
+            const row = rows.get(params[0])
+            return typeof row === 'string' ? { value: row } : row
+          },
+          run: async () => {
+            writes.push(params)
+            rows.set(params[0], { value: params[1], updated_at: params[2] })
+            return { success: true }
+          },
+        }),
+      }
+    },
   }
+  return db
 }
 
 /** Canned upstream: chain 4663, block 0x64, 2 proxies; agg3Call counts aggregate3 calls. */
@@ -235,10 +250,10 @@ describe('handleCockpitRequest', () => {
     assert.equal(calls, 0)
   })
   it('serves a cached snapshot without upstream calls', async () => {
-    const kv = makeKv({ [`cockpit:v1:${ADDR.toLowerCase()}`]: '{"cached":true}' })
+    const db = makeDb({ [`cockpit:v1:${ADDR.toLowerCase()}`]: { value: '{"cached":true}', updated_at: Date.now() } })
     let calls = 0
     mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('must not be called') })
-    const res = await handleCockpitRequest(get(ADDR), { COCKPIT_CACHE: kv })
+    const res = await handleCockpitRequest(get(ADDR), { DB: db })
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('X-Cockpit-Cache'), 'HIT')
     assert.equal(await res.text(), '{"cached":true}')
@@ -246,20 +261,23 @@ describe('handleCockpitRequest', () => {
   })
   it('computes, caches with TTL, and serves the second request from cache', async () => {    const upstream = makeUpstream()
     mock.method(globalThis, 'fetch', upstream.fetchImpl)
-    const kv = makeKv()
-    const env = { COCKPIT_CACHE: kv }
+    const db = makeDb()
+    const env = { DB: db }
     const first = await handleCockpitRequest(get(ADDR), env)
     assert.equal(first.status, 200)
     assert.equal(first.headers.get('X-Cockpit-Cache'), 'MISS')
     const body = await first.text()
     assert.match(body, /"\$bigint":"100"/)
-    const snapshotPut = kv.puts.find(p => p.k === `cockpit:v1:${ADDR.toLowerCase()}`)
-    assert.equal(snapshotPut.opts.expirationTtl, COCKPIT_CACHE_TTL_SECONDS)
-    const budgetPut = kv.puts.find(p => p.k.startsWith('cockpit:budget:v1:'))
-    assert.equal(budgetPut.opts.expirationTtl, 3600)
+    const snapshotWrite = db.writes.find(w => w[0] === `cockpit:v1:${ADDR.toLowerCase()}`)
+    assert.ok(snapshotWrite, 'snapshot write expected')
+    assert.match(snapshotWrite[1], /"\$bigint":"100"/)
+    const budgetWrite = db.writes.find(w => w[0].startsWith('cockpit:budget:v1:'))
+    assert.ok(budgetWrite, 'budget write expected')
+    assert.equal(JSON.parse(budgetWrite[1]).used, 1)
     const upstreamCalls = upstream.calls.length
     const second = await handleCockpitRequest(get(ADDR), env)
     assert.equal(second.headers.get('X-Cockpit-Cache'), 'HIT')
+    assert.equal(await second.text(), body)
     assert.equal(upstream.calls.length, upstreamCalls)
   })
   it('works without the KV binding (compute only, no cache)', async () => {
@@ -270,17 +288,19 @@ describe('handleCockpitRequest', () => {
     assert.equal(res.headers.get('X-Cockpit-Cache'), 'MISS')
   })
   it('returns 429 after the per-IP compute cap is exhausted', async () => {
-    const kv = makeKv({ 'cockpit:budget:v1:192.0.2.9': String(COCKPIT_COMPUTE_CAP_PER_HOUR) })
+    const db = makeDb({
+      'cockpit:budget:v1:192.0.2.9': { value: JSON.stringify({ used: COCKPIT_COMPUTE_CAP_PER_HOUR, at: Date.now() }), updated_at: Date.now() },
+    })
     let calls = 0
     mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('must not be called') })
-    const res = await handleCockpitRequest(get(ADDR), { COCKPIT_CACHE: kv })
+    const res = await handleCockpitRequest(get(ADDR), { DB: db })
     assert.equal(res.status, 429)
     assert.equal(res.headers.get('Retry-After'), '3600')
     assert.equal(calls, 0)
   })
   it('returns 502 when the upstream is unreachable', async () => {
     mock.method(globalThis, 'fetch', async () => { throw new Error('down') })
-    const res = await handleCockpitRequest(get(ADDR), { COCKPIT_CACHE: makeKv() })
+    const res = await handleCockpitRequest(get(ADDR), { DB: makeDb() })
     assert.equal(res.status, 502)
     assert.match(await res.text(), /unavailable/)
   })

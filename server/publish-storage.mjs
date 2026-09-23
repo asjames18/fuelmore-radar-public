@@ -19,12 +19,12 @@ export async function publishSnapshot(report,env) {
  try {
   const raw=await d1Get(env,key)
   if(raw) previous=JSON.parse(raw)
- }catch(err){throw new Error(`Storage snapshot read failed (${err.message}); existing report retained`)}
+ }catch(err){console.error(`Storage snapshot read failed for ${key}:`,err?.message ?? err);throw new Error('Storage snapshot read failed; existing report retained')}
  if(previous?.chainId===4663 && /^\d+$/.test(previous.throughBlock??'') &&
    (BigInt(previous.throughBlock)>BigInt(report.throughBlock) || Date.parse(previous.generatedAt)>generated)) throw new Error('Storage contains a newer snapshot; publication withheld')
  try {
   await d1Put(env,key,JSON.stringify(report))
- }catch(err){throw new Error(`Storage publication was not confirmed (${err.message}); retry the validated snapshot`)}
+ }catch(err){console.error(`Storage publication failed for ${key}:`,err?.message ?? err);throw new Error('Storage publication was not confirmed; retry the validated snapshot')}
  return {ok:true,throughBlock:report.throughBlock,throughHash:report.throughHash,generatedAt:report.generatedAt}
 }
 

@@ -19,14 +19,14 @@ describe('activity publisher report selection', () => {
     const result = await loadReport(env(report('100', 5000), report('200')))
     assert.equal(result.source, 'assets'); assert.equal(result.report.throughBlock, '200')
   })
-  it('prefers a newer valid publisher snapshot in KV', async () => {
-    assert.equal((await loadReport(env(report('300'), report('200', 300)))).source, 'kv')
+  it('prefers a newer valid publisher snapshot in D1', async () => {
+    assert.equal((await loadReport(env(report('300'), report('200', 300)))).source, 'd1')
   })
-  it('serves newer KV corrections at the same block instead of the asset seed',async()=>{
+  it('serves newer D1 corrections at the same block instead of the asset seed',async()=>{
     const asset=report('200');asset.generatedAt=new Date(Date.now()-60000).toISOString()
     const kv=report('200');kv.days[0].mints=2
     const result=await loadReport(env(kv,asset))
-    assert.equal(result.source,'kv')
+    assert.equal(result.source,'d1')
     assert.equal(result.report.days[0].mints,2)
   })
   it('rejects proxy-counting edge reports even when newer', async () => {

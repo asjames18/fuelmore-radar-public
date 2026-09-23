@@ -1,6 +1,6 @@
 /** Serve complete sender-counted publisher snapshots, never approximate edge counts.
  * The Node publisher owns collection, reorg recovery and maturity validation.
- * KV is an optional copy of a published report, not an independently advanced index.
+ * D1 is the publisher's storage; the bundled asset is the fallback seed.
  */
 import { MATURITY_DAY_COUNT } from './maturity.mjs'
 import { storeGetJson } from './d1-store.mjs'
@@ -65,7 +65,7 @@ export async function loadReport(env) {
     const observed=Date.parse(b.report.generatedAt)-Date.parse(a.report.generatedAt)
     if(observed!==0)return observed
     // Direct publisher storage is authoritative when coverage and time agree.
-    return a.source === 'kv' ? -1 : 1
+    return a.source === 'd1' ? -1 : 1
   })
   return valid[0] ?? { report: null, source: 'none' }
 }

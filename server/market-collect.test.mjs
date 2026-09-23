@@ -108,6 +108,34 @@ function sleepStub() {
   return { delays, sleep }
 }
 
+/** Mock D1 binding for storeGet/storePut: rows hold { value, updated_at } (plain strings are wrapped). */
+function makeDb(initial = {}) {
+  const rows = new Map(Object.entries(initial))
+  const writes = []
+  return {
+    rows,
+    writes,
+    prepare() {
+      return {
+        bind: (...params) => ({
+          first: async () => {
+            if (!rows.has(params[0])) return null
+            const row = rows.get(params[0])
+            return typeof row === 'string' ? { value: row } : row
+          },
+          run: async () => {
+            writes.push(params)
+            rows.set(params[0], { value: params[1], updated_at: params[2] })
+            return { success: true }
+          },
+        }),
+      }
+    },
+  }
+}
+
+afterEach(() => mock.restoreAll())
+
 describe('source registry', () => {
   it('orders sources Dexscreener → GeckoTerminal → DexPaprika', () => {
     assert.deepEqual(SOURCE_ORDER, ['dexscreener', 'geckoterminal', 'dexpaprika'])
@@ -688,16 +716,12 @@ describe('all-or-nothing semantics', () => {
       console.restore()
     }
   })
-  it('never writes partial data: runMarketSnapshot leaves KV untouched on pair failure', async () => {
+  it('never writes partial data: runMarketSnapshot leaves D1 untouched on pair failure', async () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
-    const writes = []
-    const env = {
-      ACTIVITY: {
-        get: async () => null,
-        put: async (...args) => { writes.push(args) },
-      },
-    }
+    const db = makeDb()
+    const writes = db.writes
+    const env = { DB: db }
     try {
       mock.method(globalThis, 'fetch', async (url) => {
         const key = String(url)
@@ -719,13 +743,9 @@ describe('all-or-nothing semantics', () => {
 describe('runMarketSnapshot success path', () => {
   it('writes one history point and returns ok', async () => {
     const console = captureConsole()
-    const writes = []
-    const env = {
-      ACTIVITY: {
-        get: async () => null,
-        put: async (...args) => { writes.push(args) },
-      },
-    }
+    const db = makeDb()
+    const writes = db.writes
+    const env = { DB: db }
     try {
       mock.method(globalThis, 'fetch', async (url) => {
         const key = String(url)
@@ -737,8 +757,8 @@ describe('runMarketSnapshot success path', () => {
       const result = await runMarketSnapshot(env)
       assert.equal(result.ok, true)
       assert.equal(writes.length, 1)
-      const [kvKey, body] = writes[0]
-      assert.equal(kvKey, 'market-history-v2')
+      const [storeKey, body] = writes[0]
+      assert.equal(storeKey, 'market-history-v2')
       const stored = JSON.parse(body)
       assert.equal(stored.points.length, 1)
       assert.equal(stored.points[0].fuelPrice, 1.23)
@@ -750,10 +770,10 @@ describe('runMarketSnapshot success path', () => {
       console.restore()
     }
   })
-  it('skips when the KV binding is unavailable', async () => {
+  it('skips when the D1 binding is unavailable', async () => {
     const result = await runMarketSnapshot({})
     assert.equal(result.ok, false)
-    assert.equal(result.reason, 'kv-unavailable')
+    assert.equal(result.reason, 'd1-unavailable')
   })
 })
 
@@ -812,13 +832,11 @@ describe('dexpaprika api key', () => {
   it('runMarketSnapshot threads env.DEXPAPRIKA_API_KEY into the collector', async () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
-    const writes = []
+    const db = makeDb()
+    const writes = db.writes
     const seen = []
     const env = {
-      ACTIVITY: {
-        get: async () => null,
-        put: async (...args) => { writes.push(args) },
-      },
+      DB: db,
       DEXPAPRIKA_API_KEY: 'api_env_key_456',
     }
     try {
@@ -848,9 +866,7 @@ describe('dexpaprika api key', () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
     const seen = []
-    const env = {
-      ACTIVITY: { get: async () => null, put: async () => {} },
-    }
+    const env = { DB: makeDb() }
     try {
       mock.method(globalThis, 'fetch', async (url, init) => {
         const key = String(url)
@@ -923,24 +939,16 @@ describe('quote freshness gate (E1)', () => {
 })
 
 describe('price deviation guard (E1)', () => {
-  const kvWith = (points) => {
-    const writes = []
-    return {
-      writes,
-      env: {
-        ACTIVITY: {
-          get: async () => ({ points }),
-          put: async (...args) => { writes.push(args) },
-        },
-      },
-    }
+  const dbWith = (points) => {
+    const db = makeDb({ 'market-history-v2': JSON.stringify({ points }) })
+    return { writes: db.writes, env: { DB: db } }
   }
   it('withholds a >50% move vs a fresh point when no second source corroborates', async () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
     const lastT = Math.floor(Date.now() / 1000) - 60
     const last = { t: lastT, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200, fuelSource: 'dexscreener', moreSource: 'dexscreener' }
-    const { writes, env } = kvWith([last])
+    const { writes, env } = dbWith([last])
     try {
       // Dexscreener reports a 60% drop on FUEL; the corroborating source
       // (geckoterminal) disagrees, so the point must be withheld.
@@ -966,7 +974,7 @@ describe('price deviation guard (E1)', () => {
     const { sleep } = sleepStub()
     const lastT = Math.floor(Date.now() / 1000) - 60
     const last = { t: lastT, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200, fuelSource: 'dexscreener', moreSource: 'dexscreener' }
-    const { writes, env } = kvWith([last])
+    const { writes, env } = dbWith([last])
     try {
       mock.method(globalThis, 'fetch', async (url) => {
         const key = String(url)
@@ -991,7 +999,7 @@ describe('price deviation guard (E1)', () => {
     const console = captureConsole()
     const { sleep } = sleepStub()
     const last = { t: Math.floor(Date.now() / 1000) - 4 * 3600, fuelPrice: 1.0, fuelLiquidity: 100, morePrice: 4.0, moreLiquidity: 200 }
-    const { writes, env } = kvWith([last])
+    const { writes, env } = dbWith([last])
     try {
       mock.method(globalThis, 'fetch', async (url) => {
         const key = String(url)
