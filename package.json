@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run src --exclude '**/._*' --exclude 'public-export/**' && node --test server/cockpit-cache.test.mjs server/activity.test.mjs server/analytics.test.mjs server/maturity.test.mjs server/checkpoint.test.mjs server/activity-edge.test.mjs server/rpc-allowlist.test.mjs server/worker.test.mjs server/rpc-config.test.mjs server/rpc-probe.test.mjs server/rpc-budget.test.mjs server/scan-ranges.test.mjs server/activity-resume.test.mjs server/publish-storage.test.mjs server/market-collect.test.mjs server/watchdog.test.mjs && npm run test:core",
+    "test": "vitest run src --exclude '**/._*' --exclude 'public-export/**' && node --test server/cockpit-cache.test.mjs server/activity.test.mjs server/analytics.test.mjs server/maturity.test.mjs server/checkpoint.test.mjs server/activity-edge.test.mjs server/rpc-allowlist.test.mjs server/worker.test.mjs server/rpc-config.test.mjs server/rpc-probe.test.mjs server/rpc-budget.test.mjs server/scan-ranges.test.mjs server/activity-resume.test.mjs server/publish-storage.test.mjs server/market-collect.test.mjs server/watchdog.test.mjs server/price-sources.test.mjs && npm run test:core",
     "server": "node server/index.mjs",
     "publish:activity": "node server/publish-activity.mjs",
     "check:rpc": "node scripts/check-rpc.mjs",

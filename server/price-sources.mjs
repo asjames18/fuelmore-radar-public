@@ -103,13 +103,19 @@ function isRetriableStatus(status) {
   return status === 429 || (status >= 500 && status <= 599)
 }
 
-/** Retry-After is seconds (or an HTTP date); clamp it so one header can't stall the cron. */
+/** Retry-After is seconds (or an HTTP date); clamp it so one header can't stall the cron.
+ *  A zero/negative/empty value is treated as absent so callers fall back to
+ *  exponential backoff — retrying in 0ms against a source that just rate-limited
+ *  us burns attempts for nothing. */
 export function parseRetryAfterMs(value) {
   if (value == null) return null
   const seconds = Number(String(value).trim())
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, RETRY_MAX_DELAY_MS)
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, RETRY_MAX_DELAY_MS)
   const date = Date.parse(value)
-  if (!Number.isNaN(date)) return Math.min(Math.max(0, date - Date.now()), RETRY_MAX_DELAY_MS)
+  if (!Number.isNaN(date)) {
+    const waitMs = date - Date.now()
+    if (waitMs > 0) return Math.min(waitMs, RETRY_MAX_DELAY_MS)
+  }
   return null
 }
 
@@ -119,8 +125,9 @@ function exponentialDelayMs(attempt) {
 
 /**
  * GET a JSON endpoint, retrying 429/5xx and network errors up to
- * MAX_FETCH_ATTEMPTS with exponential backoff. The Retry-After header, when
- * present, overrides the computed backoff. Non-retriable statuses (404,
+ * MAX_FETCH_ATTEMPTS with exponential backoff. A positive Retry-After header,
+ * when present, overrides the computed backoff; zero/negative values are
+ * ignored (they would collapse the retry into an immediate, doomed refetch). Non-retriable statuses (404,
  * 403, …) throw immediately so the caller can move to the next step.
  */
 export async function fetchJsonWithRetry(url, { pairKey, source, label, fetchImpl, sleep, headers }) {

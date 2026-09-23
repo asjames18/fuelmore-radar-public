@@ -10,7 +10,8 @@
 //   1. Try each price source in ordered failover — Dexscreener, then
 //      GeckoTerminal, then DexPaprika. First valid result wins. Every source
 //      retries 429/5xx and network errors up to 3 attempts with exponential
-//      backoff, honoring the Retry-After response header when present.
+//      backoff, honoring a positive Retry-After response header when present
+//      (zero/negative values are ignored so retries actually back off).
 //   2. The Dexscreener source itself keeps its internal fallback: pair
 //      endpoint first, then the token endpoint with strict matching of
 //      chainId "robinhood" AND the expected pairAddress.
