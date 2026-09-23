@@ -119,11 +119,12 @@ returned HTTP 403 with a Cloudflare challenge, so explorer holder/transfer/contr
 metadata remained explicitly unavailable; upstream availability is not guaranteed.
 No old Worker cron remains configured.
 
-Public Cloudflare build command substitutes the deployment-specific KV namespace
-for REPLACE_WITH_PUBLIC_KV_ID in wrangler.jsonc before npm run build; deploy command
-is npx wrangler deploy. The public source keeps its portable placeholder. Runtime
-RPC_URL is encrypted; ACTIVITY and RPC_RATE_LIMITER bindings were verified after
-redeployment. Non-production public builds are disabled.
+Public Cloudflare deploys use the dedicated `wrangler.public.jsonc`
+(name `fuelmore-radar-public`, assets `./dist-public` from `npm run build:public`,
+the */15 snapshot cron kept, no dev-only vars). Deploy command is
+`npx wrangler deploy --config wrangler.public.jsonc`. The public source keeps its
+portable placeholder. Runtime RPC_URL is encrypted; ACTIVITY and RPC_RATE_LIMITER
+bindings were verified after redeployment. Non-production public builds are disabled.
 
 Release validation on integrated commit 4e6b1cf: 162 tests, lint, personal build,
 public build and isolation checks passed. Existing bundle-size warning remains.

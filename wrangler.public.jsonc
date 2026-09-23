@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Dedicated config for the PUBLIC worker (fuelmore-radar-public).
+  // Deploy with: npx wrangler deploy --config wrangler.public.jsonc
+  // (or via ~/workspace/skills/cloudflare/bin/deploy-wrangler.py <cwd> --config wrangler.public.jsonc).
+  // This replaces the old dance of temporarily editing the shared wrangler.jsonc
+  // assets.directory before public deploys. The dev-only config (wrangler.jsonc)
+  // stays untouched and private.
+  "name": "fuelmore-radar-public",
+  "main": "server/worker.mjs",
+  "compatibility_date": "2026-09-15",
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    // The watchdog + market snapshot cron. Keep this in config: deploys sync
+    // triggers from here, and an empty list silently deletes the trigger —
+    // which caused the 2026-09-22 watchdog dispatch gap (trigger only
+    // re-attached manually at 13:25 UTC, after the outage window).
+    "crons": ["*/15 * * * *"]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ACTIVITY",
+      "id": "4ee21ae0827e47a585602c260af73230"
+    },
+    {
+      "binding": "COCKPIT_CACHE",
+      "id": "efbf0ca8482f4ec487a23974a66c170a"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "e30ac5d4-9f16-4d29-82f0-c4bf48befeee"
+    }
+  ],
+  "assets": {
+    // Public bundle from `npm run build:public` (isolation check rejects
+    // owner markers). The dev wrangler.jsonc serves ./dist instead — the two
+    // must never be swapped on the public worker.
+    "directory": "./dist-public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/rpc*",
+      "/api/*"
+    ]
+  },
+  // No ANALYTICS_PRIVATE here: the private usage-summary endpoint stays 404 on
+  // the public worker. (The dev config sets ANALYTICS_PRIVATE=1 for local/dev use.)
+  "ratelimits": [
+    {
+      "name": "RPC_RATE_LIMITER",
+      // Shared namespace with the dev config; keys are per-IP (radar-rpc:<ip>)
+      // so the two workers don't steal each other's quota.
+      "namespace_id": "46631901",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ]
+}
