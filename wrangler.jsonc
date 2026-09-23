@@ -7,7 +7,11 @@
     "enabled": true
   },
   "triggers": {
-    "crons": []
+    // The watchdog + market snapshot cron. Keep this in config: deploys sync
+    // triggers from here, and an empty list silently deletes the trigger —
+    // which caused the 2026-09-22 watchdog dispatch gap (trigger only
+    // re-attached manually at 13:25 UTC, after the outage window).
+    "crons": ["*/15 * * * *"]
   },
   "kv_namespaces": [
     {

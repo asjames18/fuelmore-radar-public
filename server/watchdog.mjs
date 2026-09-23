@@ -2,15 +2,22 @@
 //
 // GitHub's scheduler drops most `*/15` triggers (observed ~8-10 runs/day, gaps
 // up to 7h), while the Worker's own cron fires reliably every 15 minutes. This
-// watchdog checks how old the two pipeline snapshots in KV are and forces a
+// watchdog checks how old the two pipeline snapshots are and forces a
 // workflow run via `workflow_dispatch` only when the pipeline has gone quiet.
 // The staleness threshold is set well above GitHub's observed ~3h cadence so
 // the watchdog fires a few extra runs per month at most (zero new spend), and
 // a cooldown prevents duplicate dispatches while a forced run is in flight.
 //
+// Snapshot freshness is read through the unified snapshot store (D1 first,
+// legacy KV fallback): the GitHub publisher writes D1 directly since the
+// 2026-09-22 storage migration, so reading KV alone sees permanently stale
+// data and would force a dispatch on every cooldown window.
+//
 // The dispatch token lives in the `GITHUB_DISPATCH_TOKEN` Worker secret, never
 // in config or source. A fine-grained PAT with Actions: Read and write on the
 // repo is enough. Without the secret the watchdog logs and does nothing.
+
+import { storeGet } from './d1-store.mjs'
 
 export const WATCHDOG = {
   owner: 'asjames18',
@@ -50,14 +57,15 @@ function extractTimestamp(raw, pick) {
 const dashboardTimestamp = raw => extractTimestamp(raw, parsed => parsed?.data?.updatedAt)
 const activityTimestamp = raw => extractTimestamp(raw, parsed => parsed?.generatedAt)
 
-async function readAgeMinutes(kv, key, extract, nowMs) {
+async function readAgeMinutes(env, key, extract, nowMs) {
   try {
-    const raw = await kv.get(key)
+    // D1 first, legacy KV fallback — matches where the publisher actually writes.
+    const raw = await storeGet(env, key)
     const stamp = extract(raw)
     return stamp === null ? Number.POSITIVE_INFINITY : minutesBetween(nowMs, Date.parse(stamp))
   } catch {
-    // A KV read failure must not block the check; treat as stale and let the
-    // forced run refresh whatever it can.
+    // A storage read failure must not block the check; treat as stale and let
+    // the forced run refresh whatever it can.
     return Number.POSITIVE_INFINITY
   }
 }
@@ -88,12 +96,14 @@ export async function checkPipelineFreshness(env, options = {}) {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
   const nowMs = now()
 
-  if (!env?.ACTIVITY || typeof env.ACTIVITY.get !== 'function') {
-    return { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'kv-unavailable' }
+  const hasDb = env?.DB != null && typeof env.DB.prepare === 'function'
+  const hasKv = env?.ACTIVITY != null && typeof env.ACTIVITY.get === 'function'
+  if (!hasDb && !hasKv) {
+    return { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'storage-unavailable' }
   }
 
-  const dashboardAge = await readAgeMinutes(env.ACTIVITY, config.dashboardKey, dashboardTimestamp, nowMs)
-  const activityAge = await readAgeMinutes(env.ACTIVITY, config.activityKey, activityTimestamp, nowMs)
+  const dashboardAge = await readAgeMinutes(env, config.dashboardKey, dashboardTimestamp, nowMs)
+  const activityAge = await readAgeMinutes(env, config.activityKey, activityTimestamp, nowMs)
   const ages = { dashboard: dashboardAge, activity: activityAge }
   const stale = !Number.isFinite(dashboardAge) || dashboardAge > config.staleMinutes || !Number.isFinite(activityAge) || activityAge > config.staleMinutes
 
@@ -105,11 +115,13 @@ export async function checkPipelineFreshness(env, options = {}) {
   }
 
   try {
-    const lastRaw = await env.ACTIVITY.get(config.lastDispatchKey)
-    if (lastRaw !== null && lastRaw !== undefined) {
-      const lastMs = Date.parse(String(lastRaw))
-      if (Number.isFinite(lastMs) && minutesBetween(nowMs, lastMs) < config.cooldownMinutes) {
-        return { checked: true, stale: true, dispatched: false, ages, reason: 'cooldown' }
+    if (typeof env.ACTIVITY?.get === 'function') {
+      const lastRaw = await env.ACTIVITY.get(config.lastDispatchKey)
+      if (lastRaw !== null && lastRaw !== undefined) {
+        const lastMs = Date.parse(String(lastRaw))
+        if (Number.isFinite(lastMs) && minutesBetween(nowMs, lastMs) < config.cooldownMinutes) {
+          return { checked: true, stale: true, dispatched: false, ages, reason: 'cooldown' }
+        }
       }
     }
   } catch {
@@ -125,7 +137,9 @@ export async function checkPipelineFreshness(env, options = {}) {
   if (!dispatched) return { checked: true, stale: true, dispatched: false, ages, reason: 'dispatch-failed' }
 
   try {
-    await env.ACTIVITY.put(config.lastDispatchKey, new Date(nowMs).toISOString())
+    if (typeof env.ACTIVITY?.put === 'function') {
+      await env.ACTIVITY.put(config.lastDispatchKey, new Date(nowMs).toISOString())
+    }
   } catch {
     // The dispatch already happened; a missed cooldown write is harmless.
   }

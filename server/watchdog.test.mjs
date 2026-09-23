@@ -16,6 +16,20 @@ function makeKv(values = {}) {
   }
 }
 
+// Minimal D1 stand-in: prepare(sql).bind(key).first() -> { value } | null.
+function makeDb(values = {}, { fail = false } = {}) {
+  return {
+    prepare: () => ({
+      bind: key => ({
+        first: async () => {
+          if (fail) throw new Error('d1 down')
+          return key in values ? { value: values[key] } : null
+        },
+      }),
+    }),
+  }
+}
+
 function makeEnv(kv, token = 'ghp-test-token') {
   return { ACTIVITY: kv, [WATCHDOG.secretName]: token }
 }
@@ -99,9 +113,32 @@ it('never throws when the GitHub API call fails', async () => {
   assert.equal(result.reason, 'dispatch-failed')
 })
 
-it('reports unavailable when KV is missing', async () => {
+it('reports unavailable when no storage binding exists', async () => {
   const result = await checkPipelineFreshness({}, base())
-  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'kv-unavailable' })
+  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null }, reason: 'storage-unavailable' })
+})
+
+it('prefers D1 snapshots over stale KV mirrors', async () => {
+  // Regression test for the post-2026-09-22 world: the publisher writes D1
+  // only, so KV mirrors are permanently stale. The watchdog must read the
+  // store the publisher actually writes, not KV alone.
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(3000), [WATCHDOG.activityKey]: activity(3000) })
+  const db = makeDb({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25) })
+  let fetched = false
+  const env = { ...makeEnv(kv), DB: db }
+  const result = await checkPipelineFreshness(env, { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25 }, reason: 'fresh' })
+  assert.equal(fetched, false)
+})
+
+it('falls back to KV when the D1 read fails', async () => {
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(300) })
+  const db = makeDb({}, { fail: true })
+  const env = { ...makeEnv(kv), DB: db }
+  const result = await checkPipelineFreshness(env, { ...base(), fetchImpl: async () => new Response(null, { status: 204 }) })
+  assert.equal(result.stale, true)
+  assert.equal(result.dispatched, true)
+  assert.equal(result.reason, 'dispatched')
 })
 
 it('ignores a corrupt snapshot body and treats it as stale', async () => {

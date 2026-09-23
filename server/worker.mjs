@@ -265,8 +265,25 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runMarketSnapshot(env))
     // Force a GitHub publisher run when the activity pipeline has gone quiet.
-    // This never throws and never blocks the market snapshot above.
-    ctx.waitUntil(checkPipelineFreshness(env).catch(() => null))
+    // This never throws and never blocks the market snapshot above. The check
+    // result is logged (Workers observability) and persisted to KV so a silent
+    // watchdog stays diagnosable — see `watchdog-last-check`.
+    ctx.waitUntil((async () => {
+      let result
+      try {
+        result = await checkPipelineFreshness(env)
+      } catch (err) {
+        console.error(JSON.stringify({ msg: 'watchdog-error', error: err?.message ?? String(err) }))
+        return
+      }
+      const entry = { msg: 'watchdog-check', at: new Date().toISOString(), ...result }
+      console.log(JSON.stringify(entry))
+      try {
+        await env.ACTIVITY?.put?.('watchdog-last-check', JSON.stringify(entry))
+      } catch {
+        // Diagnostics are best-effort; the check result is already logged.
+      }
+    })())
   },
 
 }
