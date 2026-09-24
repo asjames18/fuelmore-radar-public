@@ -46,11 +46,21 @@ export function MarketChart({ history, quotes }: {
   const enough = points.length>1
   // Visible per-point provenance: the latest visible observation names the
   // upstream source (and its quote time) when the collector recorded it, or
-  // says it was recorded locally. Cards and chart read the same worker-owned
-  // series, so they cannot disagree on price.
+  // says it was recorded locally. When the strip is reading worker-owned
+  // quotes, provenance describes those quotes — not the merged series'
+  // newest point, which can be a browser-recorded point from a different
+  // feed. Cards, strip, and caption all read the same worker feed.
   const latestAttribution = (() => {
     const p = points.at(-1)
     if (!enough || !p) return ''
+    if (quotes) {
+      const side = (token: 'FUEL' | 'MORE') => {
+        const q = quotes[token]
+        if (q.source || q.observedAt != null) return sideAttribution(q.source, q.observedAt, p.at)
+        return 'no worker quote yet'
+      }
+      return `Latest · FUEL ${side('FUEL')} · MORE ${side('MORE')}.`
+    }
     return `Latest · FUEL ${sideAttribution(p.fuelSource, p.fuelObservedAt, p.at)} · MORE ${sideAttribution(p.moreSource, p.moreObservedAt, p.at)}.`
   })()
   const chartTracked = useRef(false)

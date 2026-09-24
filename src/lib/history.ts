@@ -172,15 +172,18 @@ export type SideQuote = {
    * comparison — never invented from an incompatible feed.
    */
   change24h: number | null
-  /** Timestamp (ms) of the point the price came from. */
+  /**
+   * Timestamp (ms) of the upstream quote observation when the collector
+   * recorded one; falls back to the series point's collection time.
+   */
   observedAt: number | null
   /** Attribution of the price point (e.g. 'dexscreener'), when the server sent one. */
   source: string | null
 }
 
 const SIDE_FIELDS = {
-  FUEL: { price: 'fuelPrice', liquidity: 'fuelLiquidity', source: 'fuelSource' },
-  MORE: { price: 'morePrice', liquidity: 'moreLiquidity', source: 'moreSource' },
+  FUEL: { price: 'fuelPrice', liquidity: 'fuelLiquidity', source: 'fuelSource', observed: 'fuelObservedAt' },
+  MORE: { price: 'morePrice', liquidity: 'moreLiquidity', source: 'moreSource', observed: 'moreObservedAt' },
 } as const
 
 function pickSide(points: HistoryPoint[], key: 'FUEL' | 'MORE'): { pricePoint: HistoryPoint | null; liquidityPoint: HistoryPoint | null } {
@@ -223,7 +226,10 @@ export function latestQuotes(remote: HistoryPoint[]): Record<'FUEL' | 'MORE', Si
       priceUsd: price,
       liquidityUsd: liquidityPoint?.[fields.liquidity] ?? null,
       change24h,
-      observedAt: pricePoint?.at ?? null,
+      // Prefer the upstream quote's own observation time over the
+      // collector's run time — the two differ when the collector carried a
+      // quote across a gap.
+      observedAt: pricePoint?.[fields.observed] ?? pricePoint?.at ?? null,
       source: pricePoint?.[fields.source] ?? null,
     }
   }

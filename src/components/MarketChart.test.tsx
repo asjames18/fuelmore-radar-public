@@ -59,3 +59,18 @@ it('falls back to the merged series in the strip before the first worker fetch',
   const strip = screen.getByLabelText('Latest chart observations')
   expect(strip.textContent).toContain('$0.012')
 })
+it('attributes the strip to the worker quotes when they drive it, not the merged point',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  // The merged history's newest point is browser-recorded (no source); the
+  // caption must describe the worker quotes the strip actually shows.
+  const quotes = {
+    FUEL: { priceUsd: 0.00000403, liquidityUsd: 200000, change24h: -12.34, observedAt: 160000, source: 'dexscreener' },
+    MORE: { priceUsd: null, liquidityUsd: null, change24h: null, observedAt: null, source: null },
+  }
+  render(<MarketChart history={history} quotes={quotes}/>)
+  fireEvent.click(screen.getByRole('button',{name:'Compare USD'}))
+  const note = screen.getByText(/Latest ·/)
+  expect(note.textContent).toContain('FUEL via dexscreener')
+  expect(note.textContent).toContain('MORE no worker quote yet')
+  expect(note.textContent).not.toContain('recorded in this browser')
+})

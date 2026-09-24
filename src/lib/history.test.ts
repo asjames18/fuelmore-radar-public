@@ -182,4 +182,16 @@ describe('latestQuotes', () => {
     expect(quotes.MORE.source).toBe('geckoterminal')
     expect(quotes.MORE.observedAt).toBe(now - day)
   })
+
+  it('prefers the upstream quote observation time over the collector run time', async () => {
+    const { latestQuotes } = await import('./history')
+    const observed = now - 300_000
+    const remote = [
+      pt(now, { fuelPrice: 5, fuelSource: 'dexscreener', fuelObservedAt: observed }),
+    ]
+    const quotes = latestQuotes(remote)
+    expect(quotes.FUEL.observedAt).toBe(observed)
+    // No per-side observation time: falls back to the point's collection time.
+    expect(latestQuotes([pt(now, { morePrice: 2 })]).MORE.observedAt).toBe(now)
+  })
 })
