@@ -179,3 +179,52 @@ it('scheduled() runs the burns collector and advances its watermark', async () =
   assert.equal(meta.last_block, headBlock.toString())
   assert.ok(typeof meta.last_run_ts === 'number' && meta.last_run_ts > 1)
 })
+it('scheduled() runs the minter collector when its watermark is stale', async () => {
+  const headBlock = 70000000n
+  const store = new Map()
+  store.set('meta:minter-collector', JSON.stringify({ last_block: (headBlock - 5000n).toString(), last_run_ts: 0, status: 'ok' }))
+  const kv = {
+    get: async (k, type) => { const v = store.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v) },
+    put: async (k, v) => { store.set(k, v) },
+    list: async () => ({ keys: [], list_complete: true }),
+  }
+  mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    const one = (call) => {
+      const result = call?.method === 'eth_blockNumber' ? '0x' + headBlock.toString(16)
+        : call?.method === 'eth_getLogs' ? []
+        : '0x0'
+      return { jsonrpc: '2.0', id: call?.id ?? 1, result }
+    }
+    return Response.json(Array.isArray(body) ? body.map(one) : one(body))
+  })
+  const pending = []
+  const cronCtx = { waitUntil(p) { pending.push(Promise.resolve(p).catch(() => {})) } }
+  await worker.scheduled({}, { ACTIVITY: kv }, cronCtx)
+  await Promise.all(pending)
+  const meta = JSON.parse(store.get('meta:minter-collector'))
+  assert.equal(meta.last_block, headBlock.toString())
+  assert.ok(typeof meta.last_run_ts === 'number' && meta.last_run_ts > 0)
+})
+it('scheduled() skips the minter collector when it ran recently', async () => {
+  const headBlock = 70000000n
+  const nowS = Math.floor(Date.now() / 1000)
+  const store = new Map()
+  store.set('meta:minter-collector', JSON.stringify({ last_block: (headBlock - 5000n).toString(), last_run_ts: nowS, status: 'ok' }))
+  let upstream = 0
+  const kv = {
+    get: async (k, type) => { const v = store.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v) },
+    put: async (k, v) => { store.set(k, v) },
+  }
+  mock.method(globalThis, 'fetch', async () => { upstream++; return Response.json({ jsonrpc: '2.0', id: 1, result: '0x0' }) })
+  const pending = []
+  const cronCtx = { waitUntil(p) { pending.push(Promise.resolve(p).catch(() => {})) } }
+  await worker.scheduled({}, { ACTIVITY: kv }, cronCtx)
+  await Promise.all(pending)
+  // Watermark untouched and no minter data keys written; the burns collector
+  // and market snapshot still ran (they make their own upstream calls).
+  const meta = JSON.parse(store.get('meta:minter-collector'))
+  assert.equal(meta.last_block, (headBlock - 5000n).toString())
+  assert.equal(meta.last_run_ts, nowS)
+  assert.ok(![...store.keys()].some((k) => k.startsWith('minter:') || k.startsWith('flows:daily:')))
+})
