@@ -1,6 +1,6 @@
 // Minter analytics collector for the FUEL/MORE Radar (FUEL only for now).
 //
-// Hourly worker cron: scans FUEL token transfers, FUEL/WETH pool swaps and
+// Scheduled worker cron (every 5-minute tick): scans FUEL token transfers, FUEL/WETH pool swaps and
 // BatchMinter events, attributes mints to operator wallets, and maintains:
 //   minter:<0xaddr>          per-wallet claimed/sold/bought + re-mint stats
 //   mintcontract:<0xaddr>    INTERNAL bookkeeping for mint-position contracts
@@ -95,9 +95,27 @@ export const DAY_TOP_N = 25
 // Soft wall-clock budget per run; on exhaustion the run throws and the
 // watermark is retained (all-or-nothing).
 export const RUN_DEADLINE_MS = 5 * 60 * 1000
-// Hard cap on blocks scanned per hourly run: bounds CPU/subrequests on the
-// free tier and lets the collector catch up gradually after downtime.
-export const MAX_RUN_BLOCKS = 100000n
+// Hard cap on blocks scanned per run: bounds the worker's subrequest budget
+// on the free tier and lets the collector catch up gradually after downtime.
+// Sizing: the batched log transport below spends one external subrequest per
+// 1,000 blocks per scanned address (10-block ranges x 100 calls per batch),
+// so 10k blocks cost ~30 scan subrequests + ~10 for probe/timestamps/lookups,
+// fitting the 50-subrequest free-tier budget with margin. (The old 100k cap
+// paired with the chunked scan could never complete: the provider's 10-block
+// getLogs range cap turned every run into a halve-and-retry explosion and the
+// run died with "Too many subrequests" — scan-failed on every attempt.)
+export const MAX_RUN_BLOCKS = 10000n
+// Batched log transport for the worker's free-tier budget, mirroring the
+// burns collector's proven setup: fixed 10-block ranges (the provider's
+// getLogs range cap, observed 2026-09-24) packed 100 calls per JSON-RPC batch
+// (one external subrequest per batch), gently paced.
+export const MINTER_LOG_RANGE_BLOCKS = 10n
+export const MINTER_LOG_BATCH_CALLS = 100
+export const MINTER_BATCH_PACING_MS = 1000
+// Transfer-topic discovery probe window: 2,000 blocks cost 2 batched
+// subrequests — recent enough to catch new pool-fork topics, cheap enough to
+// run on every tick alongside the scans.
+export const MINTER_TOPIC_PROBE_BLOCKS = 2000n
 
 export const MINTER_KEY_PREFIX = 'minter:'
 export const MINT_CONTRACT_KEY_PREFIX = 'mintcontract:'
@@ -545,7 +563,17 @@ export const PUBLIC_RPC_URL = 'https://rpc.mainnet.chain.robinhood.com'
 
 /** Re-discover the live FUEL transfer topic set from recent token logs. */
 export async function discoverTransferTopics(chain, fromBlock, toBlock) {
-  const logs = await chain.logs({ address: FUEL_TOKEN, fromBlock, toBlock })
+  // Batched transport: the provider caps eth_getLogs at a 10-block range, so
+  // the old chunked scan exploded via halve-and-retry past the 50-subrequest
+  // free-tier budget on every run.
+  const logs = await chain.logsBatched({
+    address: FUEL_TOKEN,
+    fromBlock,
+    toBlock,
+    rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
+    batchCalls: MINTER_LOG_BATCH_CALLS,
+    pacingMs: MINTER_BATCH_PACING_MS,
+  })
   const found = new Set(logs.map((l) => (l.topics?.[0] || '').toLowerCase()).filter(Boolean))
   return [...new Set([...SEED_TRANSFER_TOPICS.map((s) => s.toLowerCase()), ...found])]
 }
@@ -582,12 +610,31 @@ export async function scanRange(chain, fromBlock, toBlock, options = {}) {
 
   const transferTopics =
     options.transferTopics ??
-    (await discoverTransferTopics(chain, fromBlock > 20000n ? toBlock - 20000n : fromBlock, toBlock))
+    (await discoverTransferTopics(
+      chain,
+      fromBlock > MINTER_TOPIC_PROBE_BLOCKS ? toBlock - MINTER_TOPIC_PROBE_BLOCKS : fromBlock,
+      toBlock,
+    ))
   checkDeadline()
+  // Batched transport (fixed 10-block ranges, 100 calls per JSON-RPC batch):
+  // one external subrequest per 1,000 blocks per address, so the scan stays
+  // inside the worker's 50-subrequest free-tier budget. The old chunked
+  // chain.logs scan hit the provider's 10-block getLogs range cap and
+  // halve-and-retried into "Too many subrequests" on every run.
+  const batchedLogs = (address, topics) =>
+    chain.logsBatched({
+      address,
+      topics,
+      fromBlock,
+      toBlock,
+      rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
+      batchCalls: MINTER_LOG_BATCH_CALLS,
+      pacingMs: MINTER_BATCH_PACING_MS,
+    })
   const [tokenLogs, poolLogs, minterLogs] = await Promise.all([
-    chain.logs({ address: FUEL_TOKEN, topics: [transferTopics], fromBlock, toBlock }),
-    chain.logs({ address: FUEL_WETH_POOL, topics: [POOL_SWAP_TOPIC], fromBlock, toBlock }),
-    chain.logs({ address: BATCH_MINTER, fromBlock, toBlock }),
+    batchedLogs(FUEL_TOKEN, [transferTopics]),
+    batchedLogs(FUEL_WETH_POOL, [POOL_SWAP_TOPIC]),
+    batchedLogs(BATCH_MINTER, null),
   ])
   checkDeadline()
 
@@ -1101,7 +1148,7 @@ async function readMeta(kv) {
 }
 
 /**
- * Hourly run: scan from the watermark to head, load prior state for the
+ * Scheduled run: scan from the watermark to head, load prior state for the
  * touched keyspace, merge, write KV, advance the watermark.
  * All-or-nothing: the watermark advances only after every write succeeds;
  * per-row updated_block/scan_block markers make a retried range idempotent.
@@ -1142,13 +1189,14 @@ export async function runMinterCollector(env, options = {}) {
     console.log('minter collector: already at head; nothing to do')
     return { ok: true, fromBlock: fromBlock.toString(), toBlock: head.toString(), empty: true }
   }
-  // Bound per-run work for the free tier; catch up over successive hours.
+  // Bound per-run work for the free tier; catch up over successive ticks
+  // (10k blocks per 5-minute tick outruns chain production of ~36k/hour).
   const runTo = head - fromBlock > MAX_RUN_BLOCKS ? fromBlock + MAX_RUN_BLOCKS : head
 
   let scanned
   try {
     const probeTo = head
-    const probeFrom = head > 20000n ? head - 20000n : 0n
+    const probeFrom = head > MINTER_TOPIC_PROBE_BLOCKS ? head - MINTER_TOPIC_PROBE_BLOCKS : 0n
     const transferTopics = await discoverTransferTopics(chain, probeFrom, probeTo)
     scanned = await scanRange(chain, fromBlock, runTo, { transferTopics, deadline: options.deadline })
   } catch (error) {

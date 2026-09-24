@@ -65,8 +65,14 @@ async function serveActivity(request, env) {
 }
 
 const MINTER_META_KEY = 'meta:minter-collector'
-const MINTER_COLLECTOR_INTERVAL_S = 3600
-const MINTER_COLLECTOR_RETRY_S = 900
+// Failure backoff between attempts. There is deliberately no interval gate:
+// the collector runs on every 5-minute cron tick and each run is capped at
+// MAX_RUN_BLOCKS (10k blocks), so it catches up faster than the chain
+// produces blocks (~36k/hour) and then idles cheaply at head (one KV read +
+// one head-block fetch). A failed run records last_attempt_ts so the next
+// ticks back off for an hour instead of burning the subrequest budget
+// re-failing every 5 minutes.
+const MINTER_COLLECTOR_RETRY_S = 3600
 
 /**
  * Best-effort failure record for the minter collector, mirroring the burns
@@ -97,12 +103,13 @@ export async function recordMinterCollectorFailure(env, meta, nowS, reason, erro
 }
 
 /**
- * Run the minter collector at most hourly. This cron fires every five minutes; the
- * collector is designed for hourly runs (100k-block per-run cap, watermarked
- * catch-up). A failed run records last_attempt_ts so the next tick backs off
- * instead of re-scanning every 5 minutes. Never throws.
+ * Run the minter collector on every cron tick (at most). The per-run block
+ * cap (MAX_RUN_BLOCKS) keeps each attempt inside the free-tier subrequest
+ * budget; the watermark makes catch-up converge over successive ticks. A
+ * failed run records last_attempt_ts so the next ticks back off for an hour
+ * instead of re-running every 5 minutes. Never throws.
  */
-async function runMinterCollectorHourly(env) {
+async function runMinterCollectorTick(env) {
   let meta = null
   let nowS = 0
   try {
@@ -110,8 +117,6 @@ async function runMinterCollectorHourly(env) {
       meta = await env.ACTIVITY?.get?.(MINTER_META_KEY, 'json')
     } catch { /* gating read is best-effort; a missing meta means run */ }
     nowS = Math.floor(Date.now() / 1000)
-    const lastRun = typeof meta?.last_run_ts === 'number' ? meta.last_run_ts : 0
-    if (nowS - lastRun < MINTER_COLLECTOR_INTERVAL_S) return
     const lastAttempt = typeof meta?.last_attempt_ts === 'number' ? meta.last_attempt_ts : 0
     if (nowS - lastAttempt < MINTER_COLLECTOR_RETRY_S) return
     const result = await runMinterCollector(env)
@@ -339,11 +344,12 @@ export default {
     )
     // Minter collector: it was never wired into a runner, so /api/flows/daily
     // sat at status "collecting" forever and minter rows only refreshed from
-    // sandbox backfills. Hourly by design (100k-block cap per run, catches up
-    // over successive runs, all-or-nothing with its own watermark) — gated
-    // here because this trigger fires every five minutes. Never blocks the
-    // market snapshot; failures back off 15 minutes via last_attempt_ts.
-    ctx.waitUntil(runMinterCollectorHourly(env))
+    // sandbox backfills. Runs on every 5-minute tick (10k-block cap per run,
+    // catches up over successive ticks, all-or-nothing with its own
+    // watermark) — the scan uses the batched log transport so each run fits
+    // the free-tier subrequest budget. Never blocks the market snapshot;
+    // failures back off an hour via last_attempt_ts.
+    ctx.waitUntil(runMinterCollectorTick(env))
     // Dashboard snapshot: rebuild the homepage snapshot (pairs, contracts,
     // holders, recent activity, protocol) on this 5-minute tick so every
     // section of the site stays as fresh as the free tier allows. Previously

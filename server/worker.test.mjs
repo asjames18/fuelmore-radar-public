@@ -206,7 +206,7 @@ it('scheduled() runs the minter collector when its watermark is stale', async ()
   assert.equal(meta.last_block, headBlock.toString())
   assert.ok(typeof meta.last_run_ts === 'number' && meta.last_run_ts > 0)
 })
-it('scheduled() skips the minter collector when it ran recently', async () => {
+it('scheduled() runs the cheap at-head check on every tick once caught up', async () => {
   const headBlock = 70000000n
   const nowS = Math.floor(Date.now() / 1000)
   const store = new Map()
@@ -221,12 +221,15 @@ it('scheduled() skips the minter collector when it ran recently', async () => {
   const cronCtx = { waitUntil(p) { pending.push(Promise.resolve(p).catch(() => {})) } }
   await worker.scheduled({}, { ACTIVITY: kv }, cronCtx)
   await Promise.all(pending)
-  // Watermark untouched and no minter data keys written; the burns collector
-  // and market snapshot still ran (they make their own upstream calls).
+  // Watermark untouched and no minter data keys written: the collector runs
+  // on every tick now (no hourly gate) but found fromBlock > head and
+  // returned early after one cheap head read. The burns collector and market
+  // snapshot still ran (they make their own upstream calls).
   const meta = JSON.parse(store.get('meta:minter-collector'))
   assert.equal(meta.last_block, (headBlock - 5000n).toString())
   assert.equal(meta.last_run_ts, nowS)
   assert.ok(![...store.keys()].some((k) => k.startsWith('minter:') || k.startsWith('flows:daily:')))
+  assert.ok(upstream > 0)
 })
 it('scheduled() records the minter collector failure reason and backs off', async () => {
   const headBlock = 70000000n

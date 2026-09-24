@@ -11,6 +11,10 @@ import {
   decodeMinterEvent,
   etDate,
   scanRange,
+  discoverTransferTopics,
+  runMinterCollector,
+  MAX_RUN_BLOCKS,
+  FUEL_FIRST_BLOCK,
   aggregateRange,
   collectRange,
   serializeState,
@@ -86,6 +90,14 @@ function stubChain({ tokenLogs = [], poolLogs = [], minterLogs = [], txs = {}, k
     async logs({ address, fromBlock, toBlock }) {
       void fromBlock
       void toBlock
+      return byAddr.get(String(address).toLowerCase()) ?? []
+    },
+    async logsBatched({ address, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40, pacingMs = 0 }) {
+      void fromBlock
+      void toBlock
+      void rangeBlocks
+      void batchCalls
+      void pacingMs
       return byAddr.get(String(address).toLowerCase()) ?? []
     },
     async blockTimestamps(blockNumbers) {
@@ -188,6 +200,73 @@ describe('scanRange', () => {
     const s = await scanRange(chain, 200n, 100n)
     assert.equal(s.swaps.length, 0)
     assert.equal(s.transfers.length, 0)
+  })
+})
+
+describe('scanRange batched transport', () => {
+  it('scans via logsBatched with 10-block ranges (provider getLogs range cap)', async () => {
+    const calls = []
+    const chain = stubChain({})
+    chain.logsBatched = async (args) => {
+      calls.push(args)
+      return []
+    }
+    chain.logs = async () => {
+      throw new Error('scanRange must not use the chunked chain.logs transport')
+    }
+    await scanRange(chain, 90n, 110n, { transferTopics: [STANDARD_TRANSFER_TOPIC] })
+    // Three scans: FUEL transfers, pool swaps, minter events.
+    assert.equal(calls.length, 3)
+    const addrs = calls.map((c) => String(c.address).toLowerCase()).sort()
+    assert.deepEqual(
+      addrs,
+      [BATCH_MINTER.toLowerCase(), FUEL_TOKEN.toLowerCase(), FUEL_WETH_POOL.toLowerCase()].sort(),
+    )
+    for (const c of calls) {
+      assert.equal(c.rangeBlocks, 10n)
+      assert.equal(c.batchCalls, 100)
+      assert.equal(BigInt(c.toBlock) - BigInt(c.fromBlock), 20n)
+    }
+  })
+
+  it('discovers transfer topics via the batched transport', async () => {
+    let batched = 0
+    const chain = stubChain({})
+    const orig = chain.logsBatched.bind(chain)
+    chain.logsBatched = async (args) => {
+      batched++
+      return orig(args)
+    }
+    chain.logs = async () => {
+      throw new Error('discoverTransferTopics must not use the chunked chain.logs transport')
+    }
+    const topics = await discoverTransferTopics(chain, 90n, 110n)
+    assert.equal(batched, 1)
+    assert.ok(topics.map((t) => t.toLowerCase()).includes(STANDARD_TRANSFER_TOPIC.toLowerCase()))
+  })
+})
+
+describe('runMinterCollector run cap', () => {
+  it('caps each run at MAX_RUN_BLOCKS so the scan fits the subrequest budget', async () => {
+    const store = new Map()
+    const kv = {
+      get: async (k, type) => {
+        const v = store.get(k)
+        return v == null ? null : type === 'json' ? JSON.parse(v) : v
+      },
+      put: async (k, v) => {
+        store.set(k, String(v))
+      },
+      list: async () => ({ keys: [], list_complete: true }),
+    }
+    const head = FUEL_FIRST_BLOCK + 50000n
+    const chain = stubChain({ head, wethUsd: null })
+    const result = await runMinterCollector({ ACTIVITY: kv }, { chain })
+    assert.equal(result.ok, true)
+    assert.equal(BigInt(result.toBlock) - BigInt(result.fromBlock), MAX_RUN_BLOCKS)
+    const meta = JSON.parse(store.get('meta:minter-collector'))
+    assert.equal(meta.last_block, (FUEL_FIRST_BLOCK + MAX_RUN_BLOCKS).toString())
+    assert.equal(meta.status, 'ok')
   })
 })
 
