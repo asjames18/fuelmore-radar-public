@@ -14,19 +14,20 @@ export function resolveRpcUrl(env) {
 export const collectorFailureMessage = () => 'Activity collection failed; check provider configuration or retry'
 
 /**
- * The burns collector needs large eth_getLogs ranges. The managed
- * (Alchemy) endpoint caps eth_getLogs at 10-block ranges AND rate-limits
- * compute units/sec — the collector's steady-state ~14k-block scans
- * 429 on every tick, the watermark holds, and the series rots
- * (observed 2026-09-24). The public Robinhood RPC tolerates 50k-block
- * ranges (verified 2026-09-24: 1.7M blocks scanned in 50k ranges), so the
- * burns collector uses it directly. Every other collector and the
- * frontend /rpc proxy keep using the managed endpoint.
+ * The burns collector reads through the MANAGED endpoint (RPC_URL), like
+ * every other collector. The public-RPC experiment (2026-09-24, commit
+ * 9f456a5) proved out for the sandbox backfill — the sandbox scanned 1.7M
+ * blocks in 50k ranges fine — but the WORKER's egress to the public RPC is
+ * rate-limited: every tick got HTTP 429, including the post-backfill tiny
+ * scan at 2026-09-24 09:34Z (meta:burn-collector reason=scan-failed), so the
+ * watermark never advanced from worker-side. Steady-state ticks scan
+ * [watermark, head] — a few hundred blocks — which fits the managed
+ * endpoint's limits (the KV-era collector ran exactly this way).
  * Override with BURN_RPC_URL if a different endpoint is ever needed.
  */
 export function resolveBurnRpcUrl(env) {
   const value = env.BURN_RPC_URL
-  if (value === undefined || value === '') return PUBLIC_RPC
+  if (value === undefined || value === '') return resolveRpcUrl(env)
   try {
     const trimmed = value.trim()
     const url = new URL(trimmed)
@@ -35,10 +36,16 @@ export function resolveBurnRpcUrl(env) {
   } catch { throw new Error('Invalid burn-collector RPC configuration') }
 }
 
-/** eth_getLogs range size for the burns collector: 50000 on the public RPC (10 on a managed override, mirroring resolveLogRange). */
+/**
+ * eth_getLogs range size for the burns collector: 10 blocks, matching the
+ * managed endpoint's free-tier cap. The existing batch/pacing machinery
+ * (BURN_LOG_BATCH_CALLS/BURN_BATCH_PACING_MS/BURN_RPC_CONCURRENCY in
+ * burn-collect.mjs) is live again for exactly this shape. Override with
+ * BURN_LOG_RANGE when the endpoint tolerates larger ranges.
+ */
 export function resolveBurnLogRange(env) {
   const value = env.BURN_LOG_RANGE
-  if (value === undefined || value === '') return env.BURN_RPC_URL?.trim() ? 10n : 50000n
+  if (value === undefined || value === '') return 10n
   if (!/^\d+$/.test(value) || BigInt(value) < 1n || BigInt(value) > 50000n) throw new Error('Invalid burn-collector log range')
   return BigInt(value)
 }

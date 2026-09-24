@@ -294,7 +294,7 @@ describe('seed watermark fallback', () => {
 })
 
 describe('provider log-range chunking', () => {
-  it('scans in 50k-block ranges by default (public RPC) and merges across them', async () => {
+  it('scans in 10-block ranges by default (managed endpoint) and merges across them', async () => {
     const kv = fakeKv()
     await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '69999999', last_run_ts: 1, status: 'ok' }))
     const ts = new Map([
@@ -318,30 +318,31 @@ describe('provider log-range chunking', () => {
     const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
     assert.equal(res.ok, true)
     assert.equal(res.dripsScanned, 2)
-    // One batched call: 70000000..70000030 is 31 blocks -> a single 50k-block
-    // range on the public RPC (one subrequest, no pacing needed).
-    assert.equal(batchedArgs.rangeBlocks, 50000n)
+    // 70000000..70000030 is 31 blocks -> four 10-block ranges on the
+    // managed endpoint (one batch, pacing machinery active).
+    assert.equal(batchedArgs.rangeBlocks, 10n)
     assert.equal(batchedArgs.batchCalls, 100)
     assert.equal(batchedArgs.pacingMs, BURN_BATCH_PACING_MS)
     assert.equal(chain.seenBatches.length, 1)
-    assert.equal(chain.seenBatches[0].length, 1)
     const ranges = chain.seenBatches[0]
+    assert.equal(ranges.length, 4)
     assert.equal(ranges[0][0].toString(), '70000000')
-    assert.equal(ranges[0][1].toString(), '70000030')
+    assert.equal(ranges[0][1].toString(), '70000009')
+    for (const [s, e] of ranges) assert.ok(e - s < 10n, 'range exceeds provider 10-block cap')
     const series = await kv.get(BURNS_KEY, 'json')
     assert.equal(series.totals.drips, 2)
     const meta = await kv.get(BURN_META_KEY, 'json')
     assert.equal(meta.last_block, '70000030')
   })
 
-  it('reads the chain through the public RPC (not the managed endpoint)', async () => {
+  it('reads the chain through the managed endpoint (RPC_URL)', async () => {
     const seen = []
     const fetchImpl = async (url, init) => {
       const payload = JSON.parse(init.body)
       const items = Array.isArray(payload) ? payload : [payload]
       seen.push([url, items])
       const replies = items.map((item) => {
-        if (item.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: item.id, result: '0x43c4b6b' } // 71222011
+        if (item.method === 'eth_blockNumber') return { jsonrpc: '2.0', id: item.id, result: '0x43ec2fb' } // 71222011
         if (item.method === 'eth_getLogs') return { jsonrpc: '2.0', id: item.id, result: [] }
         return { jsonrpc: '2.0', id: item.id, result: null }
       })
@@ -351,15 +352,17 @@ describe('provider log-range chunking', () => {
     await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '71220000', last_run_ts: 1, status: 'ok' }))
     const res = await runBurnCollector({ ACTIVITY: kv, RPC_URL: 'https://provider.test/v2/secret' }, { fetchImpl, deadline: Date.now() + 60000 })
     assert.equal(res.ok, true)
-    // Every request went to the public RPC even with a managed RPC_URL set.
+    // Every request went to the managed endpoint (the 2026-09-24 revert:
+    // worker egress to the public RPC 429s, so the collector is back on
+    // the managed path for steady-state scans).
     assert.ok(seen.length >= 1)
-    assert.ok(seen.every(([url]) => url === 'https://rpc.mainnet.chain.robinhood.com'))
+    assert.ok(seen.every(([url]) => url === 'https://provider.test/v2/secret'))
     const logItems = seen.flatMap(([, items]) => items).filter((item) => item.method === 'eth_getLogs')
     assert.ok(logItems.length >= 1)
-    // The ~2k-block gap fits in one 50k-block range.
+    // The ~2k-block gap is chunked at the managed endpoint's 10-block cap.
     for (const item of logItems) {
       const filter = item.params[0]
-      assert.ok(BigInt(filter.toBlock) - BigInt(filter.fromBlock) <= 49999n)
+      assert.ok(BigInt(filter.toBlock) - BigInt(filter.fromBlock) <= 9n)
     }
   })
 })

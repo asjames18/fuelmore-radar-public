@@ -44,19 +44,20 @@ it('validates configured log ranges and defaults managed endpoints to small rang
  for(const value of ['0','-1','1.5','50001','secret']) assert.throws(()=>resolveLogRange({RPC_LOG_RANGE:value}),/Invalid collector log range/)
 })
 
-it('burn collector defaults to the public RPC with 50k-block log ranges', async () => {
+it('burn collector defaults to the managed endpoint with 10-block log ranges', async () => {
  const {resolveBurnRpcUrl,resolveBurnLogRange}=await import('./rpc-config.mjs')
- // No BURN_RPC_URL: public RPC + large ranges (the steady-state fix).
+ // No RPC_URL: managed resolver falls back to the public-RPC default.
  assert.equal(resolveBurnRpcUrl({}), 'https://rpc.mainnet.chain.robinhood.com')
  assert.equal(resolveBurnRpcUrl({BURN_RPC_URL:''}), 'https://rpc.mainnet.chain.robinhood.com')
- assert.equal(resolveBurnLogRange({}), 50000n)
- // RPC_URL (managed endpoint) does NOT leak into the burn collector.
- assert.equal(resolveBurnRpcUrl({RPC_URL:'https://provider.test/v2/secret'}), 'https://rpc.mainnet.chain.robinhood.com')
- assert.equal(resolveBurnLogRange({RPC_URL:'https://provider.test/v2/secret'}), 50000n)
- // Explicit override honored and validated like the main resolver.
+ assert.equal(resolveBurnLogRange({}), 10n)
+ // The managed endpoint (RPC_URL) IS the burn collector's default now —
+ // the 2026-09-24 public-RPC experiment 429'd worker egress on every tick.
+ assert.equal(resolveBurnRpcUrl({RPC_URL:'https://provider.test/v2/secret'}), 'https://provider.test/v2/secret')
+ assert.equal(resolveBurnLogRange({RPC_URL:'https://provider.test/v2/secret'}), 10n)
+ // Explicit overrides honored and validated like the main resolver.
  assert.equal(resolveBurnRpcUrl({BURN_RPC_URL:' https://burns.test/v2/key '}), 'https://burns.test/v2/key')
  assert.equal(resolveBurnLogRange({BURN_RPC_URL:'https://burns.test'}), 10n)
- assert.equal(resolveBurnLogRange({BURN_LOG_RANGE:'2000'}), 2000n)
+ assert.equal(resolveBurnLogRange({BURN_LOG_RANGE:'50000'}), 50000n)
  for(const value of [' ', 'http://provider.test/secret', 'https://user:secret@provider.test', 'file:///secret', 'https://provider.test/#secret']) {
    assert.throws(() => resolveBurnRpcUrl({BURN_RPC_URL:value}), error => error.message === 'Invalid burn-collector RPC configuration')
  }

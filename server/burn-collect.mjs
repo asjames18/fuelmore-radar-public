@@ -33,25 +33,26 @@ export const BURNS_KEY = 'burns:daily'
 export const BURN_META_KEY = 'meta:burn-collector'
 
 export const BURN_FIRST_BLOCK = 63115000n
-// Per-run block budget: 16,000 blocks. Subrequest math (worker free tier: 50
-// external subrequests PER INVOCATION, shared by the market snapshot and
-// watchdog running in the same tick): on the public RPC a 16k-block run is
-// ~1 eth_getLogs call + head + timestamp batching — negligible, leaving
-// full headroom for the market snapshot's own fetches. 16k blocks/tick
-// outpaces the chain's ~14k blocks per 15-minute tick, so the watermark
-// converges over successive runs instead of falling behind.
+// Per-run block budget: 16,000 blocks = 16 batches x 100 calls x 10 blocks.
+// Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
+// shared by the market snapshot and watchdog running in the same tick):
+// 16 log batches + head ~= 17, leaving headroom for the market snapshot's
+// own fetches in the same tick. 16k blocks/tick outpaces the chain's ~14k
+// blocks per 15-minute tick, so the watermark converges over successive runs
+// instead of falling behind.
 // runs instead of falling behind.
 export const BURN_MAX_RUN_BLOCKS = 16000n
-// The collector reads from the PUBLIC Robinhood RPC (resolveBurnRpcUrl),
-// not the managed Alchemy endpoint: Alchemy caps eth_getLogs at 10-block
-// ranges and rate-limits compute units/sec, which stalled every tick at the
-// steady-state ~14k-block scan (429s, watermark held, series rotting —
-// observed 2026-09-24). The public RPC tolerates 50k-block ranges
-// (resolveBurnLogRange), so a whole tick is one or two eth_getLogs calls —
-// trivially inside the worker's 50-subrequest budget and the 4-minute
-// deadline, with no pacing needed. BURN_BATCH_PACING_MS /
-// BURN_RPC_CONCURRENCY are kept as no-op safety rails for a managed
-// override (BURN_RPC_URL), where the 10-block cap returns.
+// The collector reads from the MANAGED endpoint (resolveBurnRpcUrl ->
+// resolveRpcUrl), not the public RPC: worker egress to the public RPC is
+// rate-limited (HTTP 429 on every tick, including a post-backfill tiny
+// scan — observed 2026-09-24 09:34Z), so the watermark never advanced from
+// worker-side. The managed endpoint caps eth_getLogs at 10-block ranges
+// (resolveBurnLogRange) and rate-limits compute units/sec; steady-state
+// ticks scan only [watermark, head] (a few hundred blocks — the KV-era
+// collector ran exactly this shape), so the batched/paced scan fits inside
+// both the 50-subrequest worker budget and the 4-minute deadline.
+// BURN_RPC_URL / BURN_LOG_RANGE env overrides preserved for ops flexibility
+// (e.g. a sandbox-style catch-up via a high-range endpoint).
 export const BURN_LOG_BATCH_CALLS = 100
 export const BURN_BATCH_PACING_MS = 2500
 export const BURN_RPC_CONCURRENCY = 1
@@ -294,12 +295,12 @@ export async function runBurnCollector(env, options = {}) {
   }
   const runTo = head - fromBlock > BURN_MAX_RUN_BLOCKS ? fromBlock + BURN_MAX_RUN_BLOCKS : head
 
-  // Log scan: range size comes from resolveBurnLogRange — 50k blocks on the
-  // public RPC, so a steady-state tick is a single eth_getLogs call; a
-  // managed BURN_RPC_URL override falls back to the 10-block cap and the
-  // existing batch/pacing machinery absorbs it. If the scan fails, the
-  // all-or-nothing error record below holds the watermark and the next
-  // tick retries from the same point.
+  // Log scan: range size comes from resolveBurnLogRange — 10 blocks on the
+  // managed endpoint, so a steady-state tick is a small number of paced
+  // eth_getLogs batches (one call per 10 blocks, BURN_LOG_BATCH_CALLS per
+  // batch, BURN_BATCH_PACING_MS apart, BURN_RPC_CONCURRENCY lanes). If the
+  // scan fails, the all-or-nothing error record below holds the watermark
+  // and the next tick retries from the same point.
   let logs
   try {
     logs = await chain.logsBatched({
