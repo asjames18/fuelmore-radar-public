@@ -159,3 +159,23 @@ it('does not invent dashboard data when storage is empty or unavailable', async 
   }
   assert.equal((await worker.fetch(new Request('https://radar.test/api/dashboard',{method:'POST'}),env,ctx)).status,405)
 })
+it('scheduled() runs the burns collector and advances its watermark', async () => {
+  const headBlock = 70000000n
+  const store = new Map()
+  store.set('meta:burn-collector', JSON.stringify({ last_block: (headBlock - 5n).toString(), last_run_ts: 1, status: 'ok' }))
+  const kv = { get: async (k, type) => { const v = store.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v) }, put: async (k, v) => { store.set(k, v) } }
+  mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}'))
+    const result = body.method === 'eth_blockNumber' ? '0x' + headBlock.toString(16)
+      : body.method === 'eth_getLogs' ? []
+      : '0x0'
+    return Response.json({ jsonrpc: '2.0', id: body.id ?? 1, result })
+  })
+  const pending = []
+  const cronCtx = { waitUntil(p) { pending.push(Promise.resolve(p).catch(() => {})) } }
+  await worker.scheduled({}, { ACTIVITY: kv }, cronCtx)
+  await Promise.all(pending)
+  const meta = JSON.parse(store.get('meta:burn-collector'))
+  assert.equal(meta.last_block, headBlock.toString())
+  assert.ok(typeof meta.last_run_ts === 'number' && meta.last_run_ts > 1)
+})

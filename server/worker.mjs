@@ -8,6 +8,7 @@ import { handleMintersRequest, handleBurnsRequest, handleFlowsDailyRequest } fro
 
 import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedBody } from './rpc-budget.mjs'
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
+import { runBurnCollector } from './burn-collect.mjs'
 import { checkPipelineFreshness } from './watchdog.mjs'
 
 const rpcCache = new Map()
@@ -264,6 +265,15 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runMarketSnapshot(env))
+    // Burns collector: it was never wired into a runner, so the seeded burns
+    // series went stale after the seed. Runs alongside the market snapshot;
+    // cheap when caught up (head read + small log scan), all-or-nothing with
+    // its own watermark. Never blocks the market snapshot.
+    ctx.waitUntil(
+      runBurnCollector(env).catch((err) =>
+        console.error(JSON.stringify({ msg: 'burn-collector-error', error: err?.message ?? String(err) })),
+      ),
+    )
     // Force a GitHub publisher run when the activity pipeline has gone quiet.
     // This never throws and never blocks the market snapshot above. The check
     // result is logged (Workers observability) and persisted to KV so a silent
