@@ -69,33 +69,59 @@ const MINTER_COLLECTOR_INTERVAL_S = 3600
 const MINTER_COLLECTOR_RETRY_S = 900
 
 /**
+ * Best-effort failure record for the minter collector, mirroring the burns
+ * collector's recordBurnMetaError: records the failure reason (and a truncated
+ * error detail) without advancing the watermark, so the next tick retries from
+ * the same point and the meta answers "why is it failing" instead of just
+ * "error". Also writes the backoff marker (last_attempt_ts) on unexpected
+ * throws, which previously skipped it and let a crashing collector re-run on
+ * every 5-minute tick. Never throws.
+ */
+export async function recordMinterCollectorFailure(env, meta, nowS, reason, error) {
+  try {
+    const detail =
+      error?.message != null && String(error.message).trim() !== ''
+        ? String(error.message).slice(0, 200)
+        : null
+    await env.ACTIVITY?.put?.(
+      MINTER_META_KEY,
+      JSON.stringify({
+        ...(meta && typeof meta === 'object' ? meta : {}),
+        last_attempt_ts: nowS,
+        status: 'error',
+        reason,
+        ...(detail ? { error: detail } : {}),
+      }),
+    )
+  } catch { /* diagnostics and the backoff marker are best-effort */ }
+}
+
+/**
  * Run the minter collector at most hourly. This cron fires every five minutes; the
  * collector is designed for hourly runs (100k-block per-run cap, watermarked
  * catch-up). A failed run records last_attempt_ts so the next tick backs off
  * instead of re-scanning every 5 minutes. Never throws.
  */
 async function runMinterCollectorHourly(env) {
+  let meta = null
+  let nowS = 0
   try {
-    let meta = null
     try {
       meta = await env.ACTIVITY?.get?.(MINTER_META_KEY, 'json')
     } catch { /* gating read is best-effort; a missing meta means run */ }
-    const nowS = Math.floor(Date.now() / 1000)
+    nowS = Math.floor(Date.now() / 1000)
     const lastRun = typeof meta?.last_run_ts === 'number' ? meta.last_run_ts : 0
     if (nowS - lastRun < MINTER_COLLECTOR_INTERVAL_S) return
     const lastAttempt = typeof meta?.last_attempt_ts === 'number' ? meta.last_attempt_ts : 0
     if (nowS - lastAttempt < MINTER_COLLECTOR_RETRY_S) return
     const result = await runMinterCollector(env)
     if (result?.ok) return
-    console.error(JSON.stringify({ msg: 'minter-collector-error', reason: result?.reason ?? 'unknown' }))
-    try {
-      await env.ACTIVITY?.put?.(
-        MINTER_META_KEY,
-        JSON.stringify({ ...(meta && typeof meta === 'object' ? meta : {}), last_attempt_ts: nowS, status: 'error' }),
-      )
-    } catch { /* backoff marker is best-effort */ }
+    const reason = result?.reason ?? 'unknown'
+    console.error(JSON.stringify({ msg: 'minter-collector-error', reason }))
+    await recordMinterCollectorFailure(env, meta, nowS, reason, null)
   } catch (err) {
     console.error(JSON.stringify({ msg: 'minter-collector-error', error: err?.message ?? String(err) }))
+    await recordMinterCollectorFailure(env, meta, nowS, 'unexpected-throw', err)
   }
 }
 

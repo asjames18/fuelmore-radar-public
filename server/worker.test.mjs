@@ -1,6 +1,6 @@
 import { it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import worker from './worker.mjs'
+import worker, { recordMinterCollectorFailure } from './worker.mjs'
 const env = { RPC_RATE_LIMITER: { limit: async () => ({success:true}) }, ASSETS: { fetch: async () => new Response('<html>SPA</html>') } }
 const ctx = { waitUntil() {} }
 const request = body => new Request('https://radar.test/rpc', { method: 'POST', headers: {'CF-Connecting-IP':'192.0.2.1'}, body: JSON.stringify(body) })
@@ -227,4 +227,60 @@ it('scheduled() skips the minter collector when it ran recently', async () => {
   assert.equal(meta.last_block, (headBlock - 5000n).toString())
   assert.equal(meta.last_run_ts, nowS)
   assert.ok(![...store.keys()].some((k) => k.startsWith('minter:') || k.startsWith('flows:daily:')))
+})
+it('scheduled() records the minter collector failure reason and backs off', async () => {
+  const headBlock = 70000000n
+  const store = new Map()
+  store.set('meta:minter-collector', JSON.stringify({ last_block: (headBlock - 5000n).toString(), last_run_ts: 0, status: 'ok' }))
+  const kv = {
+    get: async (k, type) => { const v = store.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v) },
+    put: async (k, v) => { store.set(k, v) },
+    list: async () => ({ keys: [], list_complete: true }),
+  }
+  // eth_blockNumber fails so the minter collector reports head-unreadable.
+  mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null
+    const one = (call) => {
+      if (call?.method === 'eth_blockNumber') throw new Error('rpc down')
+      return { jsonrpc: '2.0', id: call?.id ?? 1, result: call?.method === 'eth_getLogs' ? [] : '0x0' }
+    }
+    if (Array.isArray(body)) {
+      const calls = body.map(one)
+      return Response.json(calls)
+    }
+    return Response.json(one(body))
+  })
+  const pending = []
+  const cronCtx = { waitUntil(p) { pending.push(Promise.resolve(p).catch(() => {})) } }
+  await worker.scheduled({}, { ACTIVITY: kv }, cronCtx)
+  await Promise.all(pending)
+  const meta = JSON.parse(store.get('meta:minter-collector'))
+  assert.equal(meta.status, 'error')
+  assert.equal(meta.reason, 'head-unreadable')
+  assert.equal(meta.last_block, (headBlock - 5000n).toString())
+  assert.ok(typeof meta.last_attempt_ts === 'number' && meta.last_attempt_ts > 0)
+  const marker = store.get('meta:minter-collector')
+  // A second immediate tick must back off: no new failure record, no retry scan.
+  const pending2 = []
+  const cronCtx2 = { waitUntil(p) { pending2.push(Promise.resolve(p).catch(() => {})) } }
+  await worker.scheduled({}, { ACTIVITY: kv }, cronCtx2)
+  await Promise.all(pending2)
+  assert.equal(store.get('meta:minter-collector'), marker)
+})
+it('recordMinterCollectorFailure keeps diagnostics honest and never throws', async () => {
+  const store = new Map()
+  const kv = { put: async (k, v) => { store.set(k, v) } }
+  await recordMinterCollectorFailure({ ACTIVITY: kv }, { last_block: '123' }, 999, 'scan-failed', new Error('boom'))
+  const meta = JSON.parse(store.get('meta:minter-collector'))
+  assert.equal(meta.status, 'error')
+  assert.equal(meta.reason, 'scan-failed')
+  assert.equal(meta.error, 'boom')
+  assert.equal(meta.last_block, '123')
+  assert.equal(meta.last_attempt_ts, 999)
+  // Long error text is truncated; a throwing KV binding does not propagate.
+  const longErr = new Error('x'.repeat(500))
+  await recordMinterCollectorFailure({ ACTIVITY: kv }, null, 1000, 'deadline', longErr)
+  const meta2 = JSON.parse(store.get('meta:minter-collector'))
+  assert.equal(meta2.error.length, 200)
+  await recordMinterCollectorFailure({ ACTIVITY: { put: async () => { throw new Error('kv down') } } }, null, 1001, 'kv-unavailable', null)
 })
