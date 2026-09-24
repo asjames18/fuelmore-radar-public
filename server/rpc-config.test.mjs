@@ -44,6 +44,25 @@ it('validates configured log ranges and defaults managed endpoints to small rang
  for(const value of ['0','-1','1.5','50001','secret']) assert.throws(()=>resolveLogRange({RPC_LOG_RANGE:value}),/Invalid collector log range/)
 })
 
+it('burn collector defaults to the public RPC with 50k-block log ranges', async () => {
+ const {resolveBurnRpcUrl,resolveBurnLogRange}=await import('./rpc-config.mjs')
+ // No BURN_RPC_URL: public RPC + large ranges (the steady-state fix).
+ assert.equal(resolveBurnRpcUrl({}), 'https://rpc.mainnet.chain.robinhood.com')
+ assert.equal(resolveBurnRpcUrl({BURN_RPC_URL:''}), 'https://rpc.mainnet.chain.robinhood.com')
+ assert.equal(resolveBurnLogRange({}), 50000n)
+ // RPC_URL (managed endpoint) does NOT leak into the burn collector.
+ assert.equal(resolveBurnRpcUrl({RPC_URL:'https://provider.test/v2/secret'}), 'https://rpc.mainnet.chain.robinhood.com')
+ assert.equal(resolveBurnLogRange({RPC_URL:'https://provider.test/v2/secret'}), 50000n)
+ // Explicit override honored and validated like the main resolver.
+ assert.equal(resolveBurnRpcUrl({BURN_RPC_URL:' https://burns.test/v2/key '}), 'https://burns.test/v2/key')
+ assert.equal(resolveBurnLogRange({BURN_RPC_URL:'https://burns.test'}), 10n)
+ assert.equal(resolveBurnLogRange({BURN_LOG_RANGE:'2000'}), 2000n)
+ for(const value of [' ', 'http://provider.test/secret', 'https://user:secret@provider.test', 'file:///secret', 'https://provider.test/#secret']) {
+   assert.throws(() => resolveBurnRpcUrl({BURN_RPC_URL:value}), error => error.message === 'Invalid burn-collector RPC configuration')
+ }
+ for(const value of ['0','-1','1.5','50001','secret']) assert.throws(()=>resolveBurnLogRange({BURN_LOG_RANGE:value}),/Invalid burn-collector log range/)
+})
+
 it('classifies collector failures without copying provider messages or URLs',async()=>{
  const {collectorDiagnostic}=await import('./rpc-config.mjs')
  assert.deepEqual(collectorDiagnostic({message:'https://secret',cause:{status:429,message:'secret'}}),{category:'rate_limit',httpStatus:429})

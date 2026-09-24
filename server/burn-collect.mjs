@@ -22,7 +22,7 @@
 // - First drip observed at block ~63,120,000 (2026-09-14 22:12 UTC).
 
 import { createChainReader, toMinHex, hexToBigInt } from './minter-collect.mjs'
-import { resolveRpcUrl } from './rpc-config.mjs'
+import { resolveBurnRpcUrl, resolveBurnLogRange } from './rpc-config.mjs'
 
 export const FUEL_BURNER = '0x1f8e137117f78EF1EA84235F3E5423c46bF2D4A2'
 // keccak256("BuyAndBurn(uint256,uint256,address)")
@@ -33,33 +33,25 @@ export const BURNS_KEY = 'burns:daily'
 export const BURN_META_KEY = 'meta:burn-collector'
 
 export const BURN_FIRST_BLOCK = 63115000n
-// Per-run block budget: 16,000 blocks = 16 batches x 100 calls x 10 blocks.
-// Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
-// shared by the market snapshot and watchdog running in the same tick):
-// 16 log batches + head ~= 17, leaving headroom for the market snapshot's
-// own fetches in the same tick. 16k blocks/tick outpaces the chain's ~14k
-// blocks per 15-minute tick, so the watermark converges over successive
+// Per-run block budget: 16,000 blocks. Subrequest math (worker free tier: 50
+// external subrequests PER INVOCATION, shared by the market snapshot and
+// watchdog running in the same tick): on the public RPC a 16k-block run is
+// ~1 eth_getLogs call + head + timestamp batching — negligible, leaving
+// full headroom for the market snapshot's own fetches. 16k blocks/tick
+// outpaces the chain's ~14k blocks per 15-minute tick, so the watermark
+// converges over successive runs instead of falling behind.
 // runs instead of falling behind.
 export const BURN_MAX_RUN_BLOCKS = 16000n
-// eth_getLogs range size per call. The RPC provider's free tier caps
-// eth_getLogs at a 10-block range (observed 2026-09-24: "Under the Free tier
-// plan, you can make eth_getLogs requests with up to a 10 block range").
-// Calls are packed BURN_LOG_BATCH_CALLS-per-batch so one subrequest covers
-// 1000 blocks. Batch pacing (observed 2026-09-24): firing the batches in a
-// burst 429-rate-limits the provider; the retry backoff then blows the
-// worker's run deadline, so batches are paced at BURN_BATCH_PACING_MS with
-// BURN_RPC_CONCURRENCY lanes — the scan stays well inside the deadline.
-// Pacing rationale (observed 2026-09-24): the provider rate-limits COMPUTE
-// UNITS PER SECOND ("exceeded its compute units per second capacity"), so
-// concurrent lanes are out — one lane firing a 100-call batch every 2.5s
-// (~40 calls/s, no bursts) stays under the limiter. 16 batches take ~40s +
-// latency, comfortably inside BURN_RUN_DEADLINE_MS.
-// Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
-// shared by every ctx.waitUntil in the tick — observed 2026-09-24: the
-// market snapshot's own fetches failed with "Too many subrequests" when the
-// burn scan ran 40 batches beside it): 16 log batches + head ~= 17, leaving
-// real headroom for the market snapshot's fetches and the watchdog.
-export const BURN_LOG_CHUNK_BLOCKS = 10n
+// The collector reads from the PUBLIC Robinhood RPC (resolveBurnRpcUrl),
+// not the managed Alchemy endpoint: Alchemy caps eth_getLogs at 10-block
+// ranges and rate-limits compute units/sec, which stalled every tick at the
+// steady-state ~14k-block scan (429s, watermark held, series rotting —
+// observed 2026-09-24). The public RPC tolerates 50k-block ranges
+// (resolveBurnLogRange), so a whole tick is one or two eth_getLogs calls —
+// trivially inside the worker's 50-subrequest budget and the 4-minute
+// deadline, with no pacing needed. BURN_BATCH_PACING_MS /
+// BURN_RPC_CONCURRENCY are kept as no-op safety rails for a managed
+// override (BURN_RPC_URL), where the 10-block cap returns.
 export const BURN_LOG_BATCH_CALLS = 100
 export const BURN_BATCH_PACING_MS = 2500
 export const BURN_RPC_CONCURRENCY = 1
@@ -264,7 +256,8 @@ export async function runBurnCollector(env, options = {}) {
   }
   const kv = env.ACTIVITY
   const fetchImpl = options.fetchImpl ?? fetch
-  const rpcUrl = options.rpcUrl ?? resolveRpcUrl(env)
+  const rpcUrl = options.rpcUrl ?? resolveBurnRpcUrl(env)
+  const rangeBlocks = options.rangeBlocks ?? resolveBurnLogRange(env)
   const chain = options.chain ?? createChainReader({ fetchImpl, rpcUrl, concurrency: BURN_RPC_CONCURRENCY })
   const deadline = options.deadline ?? Date.now() + BURN_RUN_DEADLINE_MS
 
@@ -301,15 +294,12 @@ export async function runBurnCollector(env, options = {}) {
   }
   const runTo = head - fromBlock > BURN_MAX_RUN_BLOCKS ? fromBlock + BURN_MAX_RUN_BLOCKS : head
 
-  // Log scan, packed for both caps: the provider's 10-block eth_getLogs
-  // limit (BURN_LOG_CHUNK_BLOCKS) and the worker's 50-subrequest free-tier
-  // budget PER INVOCATION (one subrequest per BURN_LOG_BATCH_CALLS calls via
-  // logsBatched — shared with the market snapshot's fetches in the same
-  // tick, so the scan must stay small enough for both to fit).
-  // A single call over the whole run range is rejected by the provider;
-  // one call per chunk trips the worker's subrequest limit instead.
-  // Batches are paced (BURN_BATCH_PACING_MS): bursty batches 429 the
-  // provider and the retry backoff would blow the run deadline.
+  // Log scan: range size comes from resolveBurnLogRange — 50k blocks on the
+  // public RPC, so a steady-state tick is a single eth_getLogs call; a
+  // managed BURN_RPC_URL override falls back to the 10-block cap and the
+  // existing batch/pacing machinery absorbs it. If the scan fails, the
+  // all-or-nothing error record below holds the watermark and the next
+  // tick retries from the same point.
   let logs
   try {
     logs = await chain.logsBatched({
@@ -317,7 +307,7 @@ export async function runBurnCollector(env, options = {}) {
       topics: [BUY_AND_BURN_TOPIC],
       fromBlock,
       toBlock: runTo,
-      rangeBlocks: BURN_LOG_CHUNK_BLOCKS,
+      rangeBlocks,
       batchCalls: BURN_LOG_BATCH_CALLS,
       pacingMs: BURN_BATCH_PACING_MS,
     })
