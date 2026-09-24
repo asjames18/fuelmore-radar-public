@@ -49,6 +49,11 @@ export const BURN_MAX_RUN_BLOCKS = 16000n
 // burst 429-rate-limits the provider; the retry backoff then blows the
 // worker's run deadline, so batches are paced at BURN_BATCH_PACING_MS with
 // BURN_RPC_CONCURRENCY lanes — the scan stays well inside the deadline.
+// Pacing rationale (observed 2026-09-24): the provider rate-limits COMPUTE
+// UNITS PER SECOND ("exceeded its compute units per second capacity"), so
+// concurrent lanes are out — one lane firing a 100-call batch every 2.5s
+// (~40 calls/s, no bursts) stays under the limiter. 16 batches take ~40s +
+// latency, comfortably inside BURN_RUN_DEADLINE_MS.
 // Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
 // shared by every ctx.waitUntil in the tick — observed 2026-09-24: the
 // market snapshot's own fetches failed with "Too many subrequests" when the
@@ -56,8 +61,8 @@ export const BURN_MAX_RUN_BLOCKS = 16000n
 // real headroom for the market snapshot's fetches and the watchdog.
 export const BURN_LOG_CHUNK_BLOCKS = 10n
 export const BURN_LOG_BATCH_CALLS = 100
-export const BURN_BATCH_PACING_MS = 400
-export const BURN_RPC_CONCURRENCY = 3
+export const BURN_BATCH_PACING_MS = 2500
+export const BURN_RPC_CONCURRENCY = 1
 export const BURN_RUN_DEADLINE_MS = 4 * 60 * 1000
 
 export const BURN_METHODOLOGY =
