@@ -108,10 +108,13 @@ export const MAX_RUN_BLOCKS = 10000n
 // Batched log transport for the worker's free-tier budget, mirroring the
 // burns collector's proven setup: fixed 10-block ranges (the provider's
 // getLogs range cap, observed 2026-09-24) packed 100 calls per JSON-RPC batch
-// (one external subrequest per batch), gently paced.
+// (one external subrequest per batch), one batch lane, 2.5s pacing between
+// batches — the provider 429-rate-limits bursty batch traffic (compute
+// units/second; observed 2026-09-24), and unpaced bursts fail the scan.
 export const MINTER_LOG_RANGE_BLOCKS = 10n
 export const MINTER_LOG_BATCH_CALLS = 100
-export const MINTER_BATCH_PACING_MS = 1000
+export const MINTER_BATCH_PACING_MS = 2500
+export const MINTER_BATCH_CONCURRENCY = 1
 // Transfer-topic discovery probe window: 2,000 blocks cost 2 batched
 // subrequests — recent enough to catch new pool-fork topics, cheap enough to
 // run on every tick alongside the scans.
@@ -470,14 +473,15 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
      * Batched log scan over [fromBlock, toBlock] for range-capped providers:
      * splits into `rangeBlocks`-sized ranges and packs `batchCalls` ranges
      * into each JSON-RPC batch — one subrequest per batch. Topics may be null.
-     * Built for the worker's 50-subrequest free-tier budget: 40 calls x 10
-     * blocks per batch keeps a 16k-block tick to ~43 external subrequests.
-     * `pacingMs` optionally sleeps before each batch dispatch: the provider
-     * 429-rate-limits bursty batch traffic (observed 2026-09-24), and the
-     * retry backoff then blows the worker's run deadline — pacing keeps the
-     * scan inside it.
+     * Built for the worker's 50-subrequest free-tier budget: small fixed
+     * ranges packed into few batches keep a scan's external subrequests
+     * deterministic (no halve-and-retry explosion). `pacingMs` optionally
+     * sleeps before each batch dispatch and `batchConcurrency` caps the
+     * dispatch lanes: the provider 429-rate-limits bursty batch traffic
+     * (observed 2026-09-24), and the retry backoff then blows the worker's
+     * run deadline — pacing keeps the scan inside it.
      */
-    async logsBatched({ address, topics = null, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40, pacingMs = 0 }) {
+    async logsBatched({ address, topics = null, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40, pacingMs = 0, batchConcurrency = concurrency }) {
       const ranges = []
       for (let start = BigInt(fromBlock); start <= BigInt(toBlock); start += rangeBlocks) {
         const end = start + rangeBlocks - 1n < toBlock ? start + rangeBlocks - 1n : toBlock
@@ -485,7 +489,7 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
       }
       const callBatches = []
       for (let i = 0; i < ranges.length; i += batchCalls) callBatches.push(ranges.slice(i, i + batchCalls))
-      const parts = await mapConcurrent(callBatches, concurrency, async (rs) => {
+      const parts = await mapConcurrent(callBatches, batchConcurrency, async (rs) => {
         if (pacingMs > 0) await new Promise((r) => setTimeout(r, pacingMs))
         const results = await batch(
           rs.map(([s, e]) => {
@@ -573,6 +577,7 @@ export async function discoverTransferTopics(chain, fromBlock, toBlock) {
     rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
     batchCalls: MINTER_LOG_BATCH_CALLS,
     pacingMs: MINTER_BATCH_PACING_MS,
+    batchConcurrency: MINTER_BATCH_CONCURRENCY,
   })
   const found = new Set(logs.map((l) => (l.topics?.[0] || '').toLowerCase()).filter(Boolean))
   return [...new Set([...SEED_TRANSFER_TOPICS.map((s) => s.toLowerCase()), ...found])]
@@ -630,6 +635,7 @@ export async function scanRange(chain, fromBlock, toBlock, options = {}) {
       rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
       batchCalls: MINTER_LOG_BATCH_CALLS,
       pacingMs: MINTER_BATCH_PACING_MS,
+      batchConcurrency: MINTER_BATCH_CONCURRENCY,
     })
   const [tokenLogs, poolLogs, minterLogs] = await Promise.all([
     batchedLogs(FUEL_TOKEN, [transferTopics]),

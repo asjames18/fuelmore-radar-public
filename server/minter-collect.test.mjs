@@ -225,6 +225,8 @@ describe('scanRange batched transport', () => {
     for (const c of calls) {
       assert.equal(c.rangeBlocks, 10n)
       assert.equal(c.batchCalls, 100)
+      assert.equal(c.pacingMs, 2500)
+      assert.equal(c.batchConcurrency, 1)
       assert.equal(BigInt(c.toBlock) - BigInt(c.fromBlock), 20n)
     }
   })

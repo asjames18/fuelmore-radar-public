@@ -182,7 +182,8 @@ it('scheduled() runs the burns collector and advances its watermark', async () =
 it('scheduled() runs the minter collector when its watermark is stale', async () => {
   const headBlock = 70000000n
   const store = new Map()
-  store.set('meta:minter-collector', JSON.stringify({ last_block: (headBlock - 5000n).toString(), last_run_ts: 0, status: 'ok' }))
+  // Small gap keeps this test fast: the batched scan paces 2.5s per batch.
+  store.set('meta:minter-collector', JSON.stringify({ last_block: (headBlock - 500n).toString(), last_run_ts: 0, status: 'ok' }))
   const kv = {
     get: async (k, type) => { const v = store.get(k); return v == null ? null : (type === 'json' ? JSON.parse(v) : v) },
     put: async (k, v) => { store.set(k, v) },
