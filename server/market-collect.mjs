@@ -58,7 +58,7 @@ function defaultSleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
 }
 
-async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds) {
+async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds, onAttempt) {
   const { pairAddress, tokenAddress } = TOKENS[pairKey]
   for (const sourceName of sources) {
     const source = SOURCES[sourceName]
@@ -75,12 +75,14 @@ async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources, dexpaprikaA
         `market snapshot [${pairKey}]: source ${sourceName} succeeded ` +
           `(price ${result.priceUsd}, liquidity ${result.liquidityUsd})`,
       )
+      if (typeof onAttempt === 'function') onAttempt(pairKey, sourceName, true)
       return { ...result, source: sourceName }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
       console.error(
-        `market snapshot [${pairKey}]: source ${sourceName} failed ` +
-          `(${error instanceof Error ? error.message : error}); trying next source`,
+        `market snapshot [${pairKey}]: source ${sourceName} failed ` + `(${message}); trying next source`,
       )
+      if (typeof onAttempt === 'function') onAttempt(pairKey, sourceName, false, message)
     }
   }
   return null
@@ -94,6 +96,7 @@ async function fetchPairSnapshot(pairKey, fetchImpl, sleep, sources, dexpaprikaA
 export async function collectMarketSnapshot(fetchImpl = fetch, nowSeconds = Math.floor(Date.now() / 1000), options = {}) {
   const sleep = options.sleep ?? defaultSleep
   const sources = Array.isArray(options.sources) && options.sources.length > 0 ? options.sources : SOURCE_ORDER
+  const onAttempt = typeof options.onAttempt === 'function' ? options.onAttempt : undefined
   // Only DexPaprika consumes this; other sources ignore the extra argument.
   // The raw value is never logged.
   const dexpaprikaApiKey =
@@ -101,8 +104,8 @@ export async function collectMarketSnapshot(fetchImpl = fetch, nowSeconds = Math
       ? options.dexpaprikaApiKey
       : null
   const results = await Promise.allSettled([
-    fetchPairSnapshot('fuel', fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds),
-    fetchPairSnapshot('more', fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds),
+    fetchPairSnapshot('fuel', fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds, onAttempt),
+    fetchPairSnapshot('more', fetchImpl, sleep, sources, dexpaprikaApiKey, nowSeconds, onAttempt),
   ])
   const [fuel, more] = results.map((r) => (r.status === 'fulfilled' ? r.value : null))
   // All-or-nothing: both sides must fetch and validate. On any failure the
@@ -219,7 +222,56 @@ export async function corroborateDeviation(side, point, sources, fetchImpl, slee
 }
 
 /** Scheduled entry point: validate, append, and prune. Failures keep history untouched. */
+/**
+ * Scheduled-entry wrapper: runs one market snapshot and persists a compact
+ * run record (outcome + per-side, per-source attempt results) to the
+ * `market-snapshot-last-run` KV key, rolling the last 24 runs. Diagnostics
+ * are private — they are not surfaced in the public UI — and best-effort:
+ * a KV failure never changes the snapshot outcome. Error text is truncated
+ * and never contains secrets (the DexPaprika key travels in an
+ * Authorization header, never in a URL or message).
+ */
 export async function runMarketSnapshot(env, options = {}) {
+  const attempts = []
+  const recordAttempt = (side, source, ok, error) => {
+    attempts.push({ side, source, ok, ...(ok ? {} : { error: String(error ?? '').slice(0, 160) }) })
+  }
+  const prevOnAttempt = options.onAttempt
+  const outcome = await collectAndStoreMarketSnapshot(env, {
+    ...options,
+    onAttempt: (...args) => {
+      recordAttempt(...args)
+      if (typeof prevOnAttempt === 'function') prevOnAttempt(...args)
+    },
+  })
+  try {
+    const kv = env?.ACTIVITY
+    if (kv && typeof kv.get === 'function' && typeof kv.put === 'function') {
+      const entry = {
+        msg: 'market-snapshot-run',
+        at: new Date().toISOString(),
+        ok: outcome.ok,
+        reason: outcome.reason ?? null,
+        pointT: outcome.t ?? null,
+        attempts,
+      }
+      let runs = []
+      try {
+        const parsed = JSON.parse((await kv.get('market-snapshot-last-run')) ?? 'null')
+        if (parsed && Array.isArray(parsed.runs)) runs = parsed.runs
+      } catch {
+        // Corrupted diagnostic state starts fresh; the run record itself is fine.
+      }
+      runs = [...runs, entry].slice(-24)
+      await kv.put('market-snapshot-last-run', JSON.stringify({ runs }))
+    }
+  } catch {
+    // Diagnostics are best-effort; the snapshot result stands.
+  }
+  return outcome
+}
+
+async function collectAndStoreMarketSnapshot(env, options = {}) {
   if (!env?.DB || typeof env.DB.prepare !== 'function') {
     console.error('Market snapshot skipped: D1 binding unavailable')
     return { ok: false, reason: 'd1-unavailable' }

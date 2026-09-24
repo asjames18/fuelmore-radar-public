@@ -1017,3 +1017,165 @@ describe('price deviation guard (E1)', () => {
     }
   })
 })
+
+describe('market snapshot run diagnostics', () => {
+  it('onAttempt reports the winning source per side on success', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const seen = []
+    try {
+      const { fetch } = stubFetch({
+        [FUEL_PAIR]: [ok(fuelPayload())],
+        [MORE_PAIR]: [ok(morePayload())],
+      })
+      const point = await collectMarketSnapshot(fetch, 1_700_000_000, {
+        ...DEXSCREENER_ONLY,
+        sleep,
+        onAttempt: (...args) => seen.push(args),
+      })
+      assert.ok(point)
+      const wins = seen
+        .filter(([, , okFlag]) => okFlag)
+        .map(([side, source]) => [side, source])
+        .sort()
+      assert.deepEqual(wins, [
+        ['fuel', 'dexscreener'],
+        ['more', 'dexscreener'],
+      ])
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('onAttempt records per-source failures without changing the null contract', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const seen = []
+    try {
+      const { fetch } = stubFetch({
+        [FUEL_PAIR]: [ok({}, 503), ok({}, 503), ok({}, 503)],
+        [FUEL_TOKEN]: [ok({}, 503), ok({}, 503), ok({}, 503)],
+        [MORE_PAIR]: [ok(morePayload())],
+      })
+      const point = await collectMarketSnapshot(fetch, 1_700_000_000, {
+        ...DEXSCREENER_ONLY,
+        sleep,
+        onAttempt: (...args) => seen.push(args),
+      })
+      assert.equal(point, null)
+      const fuelFails = seen.filter(([side, , okFlag]) => side === 'fuel' && !okFlag)
+      // One report per source: the pair endpoint's 3x503 plus the token
+      // fallback's 3x503 collapse into a single failed source attempt.
+      assert.equal(fuelFails.length, 1)
+      assert.equal(fuelFails[0][1], 'dexscreener')
+      assert.ok(typeof fuelFails[0][3] === 'string' && fuelFails[0][3].includes('503'))
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('runMarketSnapshot persists a rolling run record to KV', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const store = {}
+    const kv = {
+      get: async (k) => store[k] ?? null,
+      put: async (k, v) => {
+        store[k] = v
+      },
+    }
+    const db = makeDb()
+    const env = { DB: db, ACTIVITY: kv }
+    try {
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        if (!key.includes('dexscreener')) return ok({}, 404)()
+        if (key.includes(FUEL_PAIR)) return ok(fuelPayload())()
+        if (key.includes(MORE_PAIR)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      store['market-snapshot-last-run'] = JSON.stringify({
+        runs: Array.from({ length: 24 }, (_, i) => ({
+          msg: 'market-snapshot-run',
+          at: `seed-${i}`,
+          ok: true,
+          reason: null,
+          pointT: null,
+          attempts: [],
+        })),
+      })
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, true)
+      const saved = JSON.parse(store['market-snapshot-last-run'])
+      assert.equal(saved.runs.length, 24)
+      assert.ok(!saved.runs.some((r) => r.at === 'seed-0'))
+      const last = saved.runs.at(-1)
+      assert.equal(last.msg, 'market-snapshot-run')
+      assert.equal(last.ok, true)
+      assert.equal(last.reason, null)
+      assert.deepEqual(
+        last.attempts.map((a) => [a.side, a.source, a.ok]),
+        [
+          ['fuel', 'dexscreener', true],
+          ['more', 'dexscreener', true],
+        ],
+      )
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('runMarketSnapshot records failed runs and truncates long error text', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const store = {}
+    const kv = {
+      get: async (k) => store[k] ?? null,
+      put: async (k, v) => {
+        store[k] = v
+      },
+    }
+    const db = makeDb()
+    const env = { DB: db, ACTIVITY: kv }
+    try {
+      mock.method(globalThis, 'fetch', async () => {
+        throw new Error('z'.repeat(500))
+      })
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, false)
+      assert.equal(result.reason, 'validation-failed')
+      const saved = JSON.parse(store['market-snapshot-last-run'])
+      assert.equal(saved.runs.length, 1)
+      assert.equal(saved.runs[0].ok, false)
+      assert.equal(saved.runs[0].reason, 'validation-failed')
+      assert.ok(saved.runs[0].attempts.length > 0)
+      assert.ok(
+        saved.runs[0].attempts.every(
+          (a) => a.ok === false && typeof a.error === 'string' && a.error.length <= 160,
+        ),
+        JSON.stringify(saved.runs[0].attempts).slice(0, 400),
+      )
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('runMarketSnapshot tolerates a missing ACTIVITY binding', async () => {
+    const console = captureConsole()
+    const db = makeDb()
+    const env = { DB: db }
+    try {
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        if (!key.includes('dexscreener')) return ok({}, 404)()
+        if (key.includes(FUEL_PAIR)) return ok(fuelPayload())()
+        if (key.includes(MORE_PAIR)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      const result = await runMarketSnapshot(env)
+      assert.equal(result.ok, true)
+    } finally {
+      console.restore()
+    }
+  })
+})
