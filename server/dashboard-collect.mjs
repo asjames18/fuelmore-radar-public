@@ -70,10 +70,26 @@ const SELECTOR = {
 }
 
 const DEX_PAIR_API = 'https://api.dexscreener.com/latest/dex/pairs/robinhood'
-/** Official Robinhood Chain Blockscout REST v2 (indexed; free, keyless). */
-const BLOCKSCOUT_API = 'https://robinhoodchain.blockscout.com/api/v2'
+/**
+ * Blockscout-hosted API for Robinhood Chain (indexed; free, keyless). This is
+ * the same endpoint the GitHub publisher prefers with its API key. The
+ * official robinhoodchain.blockscout.com explorer rate-limits the Worker's
+ * egress IPs (observed 2026-09-24: every explorer read failed while
+ * DexScreener and direct RPC stayed green), so the worker uses the
+ * Blockscout-hosted endpoint with the publisher's 4 req/s throttle.
+ */
+const BLOCKSCOUT_API = 'https://api.blockscout.com/4663/api/v2'
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Stay below the free plan's five requests/second, including parallel reads. */
+let nextExplorerRead = 0
+async function throttleExplorer(url) {
+  if (!String(url).startsWith('https://api.blockscout.com/4663/')) return
+  const delay = Math.max(0, nextExplorerRead - Date.now())
+  nextExplorerRead = Date.now() + delay + 250
+  if (delay) await pause(delay)
+}
 
 function formatUnits(value, decimals) {
   const neg = value < 0n
@@ -85,6 +101,7 @@ function formatUnits(value, decimals) {
 }
 
 async function json(url, { attempt = 0, timeoutMs = 12_000 } = {}) {
+  await throttleExplorer(url)
   const response = await fetch(url, {
     headers: { Accept: 'application/json' },
     signal: AbortSignal.timeout(timeoutMs),
