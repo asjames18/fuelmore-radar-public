@@ -662,6 +662,70 @@ describe('chain reader RPC error diagnosability', () => {
   it('still reports the bare status when the body is unreadable', async () => {
     const failFetch = async () => ({ ok: false, status: 400 })
     const chain = createChainReader({ fetchImpl: failFetch })
-    await assert.rejects(() => chain.headBlock(), /^RPC HTTP 400$/)
+    await assert.rejects(() => chain.headBlock(), /RPC HTTP 400$/)
+  })
+
+  it('halves-and-retries on the free-tier block-range phrasing', async () => {
+
+    // Observed 2026-09-24: the provider rejects >10-block eth_getLogs with
+    // "Under the Free tier plan, you can make eth_getLogs requests with up
+    // to a 10 block range..." — the chain reader must treat that as a log
+    // limit and halve down to 10-block requests instead of hard-failing.
+    const seen = []
+    const succeeded = []
+    const fetchImpl = async (_url, { body }) => {
+      const payload = JSON.parse(body)
+      const filter = payload.params[0]
+      const from = BigInt(filter.fromBlock)
+      const to = BigInt(filter.toBlock)
+      seen.push({ from, to })
+      if (to - from >= 10n) {
+        return {
+          ok: false,
+          status: 400,
+          text: async () =>
+            '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":' +
+            '"Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range. ' +
+            'Upgrade to PAYG for expanded block range."}}',
+        }
+      }
+      succeeded.push({ from, to })
+      return { ok: true, json: async () => ({ jsonrpc: '2.0', id: 1, result: [] }) }
+    }
+    const chain = createChainReader({ fetchImpl })
+    const logs = await chain.logs({ address: '0xabc', fromBlock: 0n, toBlock: 99n })
+    assert.deepEqual(logs, [])
+    assert.ok(seen.length > succeeded.length, 'expected halving retries')
+    assert.ok(succeeded.length >= 10, 'expected ~10 successful leaf requests')
+    for (const r of succeeded) assert.ok(r.to - r.from < 10n, 'successful request exceeded 10 blocks')
+  })
+
+  it('logsBatched packs 10-block ranges into one subrequest per batch', async () => {
+    const batches = []
+    const fetchImpl = async (_url, { body }) => {
+      const payload = JSON.parse(body)
+      assert.ok(Array.isArray(payload), 'expected a JSON-RPC batch')
+      batches.push(payload)
+      assert.ok(payload.length <= 40, 'batch exceeds 40 calls')
+      const replies = payload.map((call, i) => {
+        const filter = call.params[0]
+        const from = BigInt(filter.fromBlock)
+        const to = BigInt(filter.toBlock)
+        assert.ok(to - from < 10n, 'range exceeds 10 blocks')
+        return { jsonrpc: '2.0', id: call.id, result: [{ blockNumber: filter.fromBlock }] }
+      })
+      return { ok: true, json: async () => replies }
+    }
+    const chain = createChainReader({ fetchImpl })
+    // 100 blocks -> 10 ranges of 10 -> a single batch.
+    const logs = await chain.logsBatched({ address: '0xabc', fromBlock: 0n, toBlock: 99n })
+    assert.equal(batches.length, 1)
+    assert.equal(logs.length, 10)
+    // 1000 blocks -> 100 ranges -> 3 batches (40/40/20).
+    batches.length = 0
+    const logs2 = await chain.logsBatched({ address: '0xabc', fromBlock: 0n, toBlock: 999n })
+    assert.equal(batches.length, 3)
+    assert.deepEqual(batches.map((b) => b.length), [40, 40, 20])
+    assert.equal(logs2.length, 100)
   })
 })

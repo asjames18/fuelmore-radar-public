@@ -129,12 +129,27 @@ function fakeKv() {
 }
 
 function fakeChain({ logs = [], timestamps = new Map(), head = 70000100n }) {
+  const seenBatches = []
   return {
+    seenBatches,
     async headBlock() {
       return head
     },
-    async logs() {
-      return logs
+    // Honors the requested block ranges like a real node: filters the canned
+    // logs (stored with hex blockNumber) to each requested range.
+    async logsBatched({ fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40 } = {}) {
+      const ranges = []
+      for (let s = BigInt(fromBlock); s <= BigInt(toBlock); s += rangeBlocks) {
+        const e = s + rangeBlocks - 1n < toBlock ? s + rangeBlocks - 1n : toBlock
+        ranges.push([s, e])
+      }
+      const batches = []
+      for (let i = 0; i < ranges.length; i += batchCalls) batches.push(ranges.slice(i, i + batchCalls))
+      seenBatches.push(...batches)
+      return logs.filter((l) => {
+        const b = BigInt(l.blockNumber)
+        return ranges.some(([s, e]) => b >= s && b <= e)
+      })
     },
     async blockTimestamps() {
       return timestamps
@@ -232,19 +247,72 @@ describe('seed watermark fallback', () => {
       timestamps: ts,
       head: 69497300n,
     })
-    let seenRange = null
-    const origLogs = chain.logs.bind(chain)
-    chain.logs = async (args) => {
-      seenRange = { from: args.fromBlock.toString(), to: args.toBlock.toString() }
-      return origLogs(args)
+    const origLogsBatched = chain.logsBatched.bind(chain)
+    chain.logsBatched = async (args) => {
+      assert.ok(args.rangeBlocks <= 10n, 'range exceeds provider 10-block cap')
+      assert.ok(args.batchCalls <= 40, 'batch exceeds 40 calls')
+      return origLogsBatched(args)
     }
     const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
     assert.equal(res.ok, true)
-    assert.equal(seenRange.from, '69497246')
+    // The scan is packed for both caps: contiguous 10-block ranges from
+    // watermark+1 to head, batched for one subrequest per 40 ranges.
+    const seenRanges = chain.seenBatches.flat().map(([from, to]) => ({ from, to }))
+    assert.ok(seenRanges.length > 1)
+    assert.equal(seenRanges[0].from.toString(), '69497246')
+    assert.equal(seenRanges.at(-1).to.toString(), '69497300')
+    for (let i = 0; i < seenRanges.length; i++) {
+      const r = seenRanges[i]
+      assert.ok(r.to - r.from < 10n, `range ${i} exceeds 10 blocks`)
+      if (i > 0) assert.equal(r.from.toString(), (seenRanges[i - 1].to + 1n).toString())
+    }
+    for (const b of chain.seenBatches) assert.ok(b.length <= 40, 'batch exceeds 40 calls')
     const series = await kv.get(BURNS_KEY, 'json')
     assert.equal(series.totals.drips, 3)
     assert.ok(Math.abs(series.totals.fuel - 1500) < 1e-6)
     const meta = await kv.get(BURN_META_KEY, 'json')
     assert.equal(meta.last_block, '69497300')
+  })
+})
+
+describe('provider log-range chunking', () => {
+  it('scans in batched 10-block ranges and merges across them', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '69999999', last_run_ts: 1, status: 'ok' }))
+    const ts = new Map([
+      ['70000005', 1790035200],
+      ['70000028', 1790035200],
+    ])
+    const chain = fakeChain({
+      logs: [
+        burnLog({ blockNumber: 70000005n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n }),
+        burnLog({ blockNumber: 70000028n, logIndex: 0n, ethWei: 2n * 10n ** 15n, fuelWei: 3n * 10n ** 21n }),
+      ],
+      timestamps: ts,
+      head: 70000030n,
+    })
+    let batchedArgs = null
+    const origLogsBatched = chain.logsBatched.bind(chain)
+    chain.logsBatched = async (args) => {
+      batchedArgs = args
+      return origLogsBatched(args)
+    }
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(res.dripsScanned, 2)
+    // One batched call: 70000000..70000030 is 31 blocks -> 4 ranges of
+    // <=10 blocks in a single batch (one subrequest).
+    assert.equal(batchedArgs.rangeBlocks, 10n)
+    assert.equal(batchedArgs.batchCalls, 40)
+    assert.equal(chain.seenBatches.length, 1)
+    assert.equal(chain.seenBatches[0].length, 4)
+    const ranges = chain.seenBatches[0]
+    assert.equal(ranges[0][0].toString(), '70000000')
+    assert.equal(ranges.at(-1)[1].toString(), '70000030')
+    for (const [s, e] of ranges) assert.ok(e - s < 10n, 'range exceeds 10 blocks')
+    const series = await kv.get(BURNS_KEY, 'json')
+    assert.equal(series.totals.drips, 2)
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '70000030')
   })
 })

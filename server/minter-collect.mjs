@@ -261,8 +261,8 @@ async function rpcHttpError(res) {
   // 400/413 (range limits, method restrictions, IP-based gating) in the
   // body, and without it the failure is undebuggable from worker logs.
   // Capped so a huge HTML error page can't flood the logs. This also lets
-  // isLogLimitError() see provider-described limits ("exceeds block range
-  // limit") so getLogsRange() can halve-and-retry them.
+  // isLogLimitError() see provider-described limits (free-tier "10 block
+  // range" phrasing included) so getLogsRange() can halve-and-retry them.
   let detail = ''
   try {
     const text = typeof res.text === 'function' ? await res.text() : ''
@@ -334,7 +334,10 @@ export async function mapConcurrent(items, concurrency, fn) {
 }
 
 function isLogLimitError(error) {
-  return /limit|too many|response size/i.test(error?.message ?? '')
+  // Matches provider-described log limits, including the free-tier
+  // block-range phrasing observed 2026-09-24: "Under the Free tier plan, you
+  // can make eth_getLogs requests with up to a 10 block range..."
+  return /limit|too many|response size|block range|free tier/i.test(error?.message ?? '')
 }
 
 export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, concurrency = RPC_CONCURRENCY } = {}) {
@@ -392,6 +395,33 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
         start = end + 1n
       }
       const parts = await mapConcurrent(ranges, concurrency, ([s, e]) => getLogsRange(address, topics, s, e))
+      return parts.flat()
+    },
+    /**
+     * Batched log scan over [fromBlock, toBlock] for range-capped providers:
+     * splits into `rangeBlocks`-sized ranges and packs `batchCalls` ranges
+     * into each JSON-RPC batch — one subrequest per batch. Topics may be null.
+     * Built for the worker's 50-subrequest free-tier budget: 40 calls x 10
+     * blocks per batch keeps a 16k-block tick to ~43 external subrequests.
+     */
+    async logsBatched({ address, topics = null, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40 }) {
+      const ranges = []
+      for (let start = BigInt(fromBlock); start <= BigInt(toBlock); start += rangeBlocks) {
+        const end = start + rangeBlocks - 1n < toBlock ? start + rangeBlocks - 1n : toBlock
+        ranges.push([start, end])
+      }
+      const callBatches = []
+      for (let i = 0; i < ranges.length; i += batchCalls) callBatches.push(ranges.slice(i, i + batchCalls))
+      const parts = await mapConcurrent(callBatches, concurrency, async (rs) => {
+        const results = await batch(
+          rs.map(([s, e]) => {
+            const filter = { address, fromBlock: toMinHex(s), toBlock: toMinHex(e) }
+            if (topics) filter.topics = topics
+            return ['eth_getLogs', [filter]]
+          }),
+        )
+        return results.flat()
+      })
       return parts.flat()
     },
     /** blockNumber bigint[] -> Map<blockNumberString, timestampSeconds> */

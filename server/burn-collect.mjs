@@ -33,7 +33,21 @@ export const BURNS_KEY = 'burns:daily'
 export const BURN_META_KEY = 'meta:burn-collector'
 
 export const BURN_FIRST_BLOCK = 63115000n
-export const BURN_MAX_RUN_BLOCKS = 100000n
+// Per-run block budget: 16,000 blocks = 40 batches x 40 calls x 10 blocks.
+// Subrequest math (worker free tier: 50 external subrequests/invocation):
+// ~40 log batches + head + timestamp lookups ~= 43, leaving headroom for
+// the market snapshot's own fetches in the same tick. 16k blocks/tick
+// outpaces the chain's ~14k blocks per 15-minute tick, so the watermark
+// converges over successive runs instead of falling behind.
+export const BURN_MAX_RUN_BLOCKS = 16000n
+// eth_getLogs range size per call. The RPC provider's free tier caps
+// eth_getLogs at a 10-block range (observed 2026-09-24: "Under the Free tier
+// plan, you can make eth_getLogs requests with up to a 10 block range").
+// Calls are packed BURN_LOG_BATCH_CALLS-per-batch so one subrequest covers
+// 400 blocks (verified: 25-call batches succeed; 40 is under the observed
+// 429 threshold and rpcFetch retries 429s with backoff).
+export const BURN_LOG_CHUNK_BLOCKS = 10n
+export const BURN_LOG_BATCH_CALLS = 40
 export const BURN_RUN_DEADLINE_MS = 4 * 60 * 1000
 
 export const BURN_METHODOLOGY =
@@ -242,13 +256,20 @@ export async function runBurnCollector(env, options = {}) {
   }
   const runTo = head - fromBlock > BURN_MAX_RUN_BLOCKS ? fromBlock + BURN_MAX_RUN_BLOCKS : head
 
+  // Log scan, packed for both caps: the provider's 10-block eth_getLogs
+  // limit (BURN_LOG_CHUNK_BLOCKS) and the worker's 50-subrequest free-tier
+  // budget (one subrequest per BURN_LOG_BATCH_CALLS calls via logsBatched).
+  // A single call over the whole run range is rejected by the provider;
+  // one call per chunk trips the worker's subrequest limit instead.
   let logs
   try {
-    logs = await chain.logs({
+    logs = await chain.logsBatched({
       address: FUEL_BURNER,
       topics: [BUY_AND_BURN_TOPIC],
       fromBlock,
       toBlock: runTo,
+      rangeBlocks: BURN_LOG_CHUNK_BLOCKS,
+      batchCalls: BURN_LOG_BATCH_CALLS,
     })
   } catch (error) {
     console.error('burn collector: log scan failed:', error?.message ?? error)
