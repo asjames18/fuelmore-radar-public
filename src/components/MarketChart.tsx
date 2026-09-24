@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Area, Brush, CartesianGrid, ComposedChart, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { formatUsd } from '../lib/format'
+import { formatUsd, formatChartTooltipValue } from '../lib/format'
 import { track } from '../lib/analytics'
 import { PAIRS, DEXSCREENER } from '../lib/contracts'
 import { marketComparison, type ChartRange } from '../lib/marketComparison'
@@ -81,7 +81,7 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
             <YAxis yAxisId="left" domain={['auto','auto']} stroke={dual?colors.FUEL:'#70847a'} tick={{fontSize:10}} tickFormatter={value=>normalized?percent(Number(value)):formatUsd(Number(value),!isPrice)} width={76}/>
             {dual && <YAxis yAxisId="right" orientation="right" domain={['auto','auto']} stroke={colors.MORE} tick={{fontSize:10}} tickFormatter={value=>formatUsd(Number(value))} width={76}/>}
             {normalized && <ReferenceLine yAxisId="left" y={0} stroke="#60766b" strokeDasharray="4 4"/>}
-            <Tooltip cursor={{stroke:'#93ada0',strokeDasharray:'3 3'}} labelFormatter={value=>`${new Date(Number(value)).toISOString().replace('T',' ').slice(0,19)} UTC`} formatter={(value)=>normalized?percent(Number(value)):formatUsd(Number(value),false)} contentStyle={{background:'#071009',border:'1px solid #245c34',borderRadius:5,fontFamily:'var(--mono)'}}/>
+            <Tooltip cursor={{stroke:'#93ada0',strokeDasharray:'3 3'}} labelFormatter={value=>`${new Date(Number(value)).toISOString().replace('T',' ').slice(0,19)} UTC`} formatter={(value)=>formatChartTooltipValue(value==null?null:Number(value),normalized)} contentStyle={{background:'#071009',border:'1px solid #245c34',borderRadius:5,fontFamily:'var(--mono)'}}/>
             <Legend iconType="plainline" wrapperStyle={{fontSize:11}}/>
             {series.map(token=><Area yAxisId={dual && token==='MORE'?'right':'left'} key={token} name={token} type="linear" dataKey={keyFor(token)} stroke={colors[token]} fill={`url(#fill-${token})`} strokeWidth={2} dot={points.length<3} activeDot={{r:4}} connectNulls={false} isAnimationActive={false}/>)}
             {points.length>2 && <Brush dataKey="at" height={22} stroke="#37654a" fill="#071009" tickFormatter={utcTick} travellerWidth={10}/>}

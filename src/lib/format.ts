@@ -43,6 +43,17 @@ export const formatEth = (value: bigint | null, digits = 4) => {
 export const formatChange = (value: number | null) =>
   value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 
+/**
+ * Chart tooltip value. Null/undefined/NaN means "no observation here" (a gap
+ * break point or an unavailable side) — render it as unknown, never as
+ * $0.00/+0.00%, which would invent a price the radar never observed. A
+ * genuine zero is still a zero, not unknown.
+ */
+export const formatChartTooltipValue = (value: number | null | undefined, percentMode: boolean) =>
+  value == null || !Number.isFinite(value)
+    ? '—'
+    : percentMode ? formatChange(value) : formatUsd(value, false)
+
 export const timeAgo = (iso: string) => {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
   if (seconds < 60) return `${seconds}s ago`

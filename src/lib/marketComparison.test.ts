@@ -23,3 +23,32 @@ it('filters the selected window and rebases both tokens together without mutatin
  expect(result.points[0].fuelChange).toBe(0)
  expect(input[0].at).toBe(200000000)
 })
+it('breaks the series across collection gaps instead of bridging missing observations',()=>{
+ const gap = 46*60*1000
+ const result=marketComparison([point(0,0.01,0.00001),point(gap,0.02,0.000005)],'ALL')
+ expect(result.points).toHaveLength(3)
+ const [first,brk,last]=result.points
+ expect(brk.at).toBe(gap/2)
+ expect(brk.fuelPrice).toBeNull()
+ expect(brk.morePrice).toBeNull()
+ expect(brk.fuelLiquidity).toBeNull()
+ expect(brk.fuelChange).toBeNull()
+ expect(brk.moreChange).toBeNull()
+ // Neighbor points are untouched and the base is still a real observation.
+ expect(first.fuelChange).toBe(0)
+ expect(last.fuelChange).toBe(100)
+ expect(result.base?.at).toBe(0)
+})
+it('does not break the series for one or two missed collection slots',()=>{
+ const twoMisses = 45*60*1000
+ const result=marketComparison([point(0,0.01,0.00001),point(twoMisses,0.02,0.000005)],'ALL')
+ expect(result.points).toHaveLength(2)
+})
+it('breaks multiple gaps independently',()=>{
+ const gap = 60*60*1000
+ const result=marketComparison([point(0,1,1),point(gap,2,2),point(gap*2,3,3)],'ALL')
+ expect(result.points).toHaveLength(5)
+ expect(result.points[1].fuelPrice).toBeNull()
+ expect(result.points[3].fuelPrice).toBeNull()
+ expect(result.points.map(p=>p.at)).toEqual([0,gap/2,gap,gap+gap/2,gap*2])
+})

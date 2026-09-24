@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MarketChart } from './MarketChart'
+import { formatChartTooltipValue } from '../lib/format'
 afterEach(() => {cleanup();vi.unstubAllGlobals()})
 const history=[{at:100000,fuelPrice:0.01,morePrice:0.00003,fuelLiquidity:1000,moreLiquidity:100},{at:160000,fuelPrice:0.012,morePrice:0.00004,fuelLiquidity:1200,moreLiquidity:110}]
 function setup(){vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} });render(<MarketChart history={history}/>)}
@@ -25,4 +26,13 @@ it('offers an actual-dollar overlay and optional percentage comparison, then dol
  expect(screen.getByText(/Pool liquidity · USD/)).toBeTruthy()
  expect(screen.queryByRole('button',{name:'Change %'})).toBeNull()
  expect(screen.queryByRole('table')).toBeNull()
+})
+it('never renders a null observation as $0.00 or +0.00% in tooltips',()=>{
+ expect(formatChartTooltipValue(null,false)).toBe('—')
+ expect(formatChartTooltipValue(undefined,true)).toBe('—')
+ expect(formatChartTooltipValue(NaN,false)).toBe('—')
+ // A genuine zero is still a zero, not unknown.
+ expect(formatChartTooltipValue(0,false)).toBe('$0.00')
+ expect(formatChartTooltipValue(1.5,false)).toBe('$1.50')
+ expect(formatChartTooltipValue(-2.5,true)).toBe('-2.50%')
 })
