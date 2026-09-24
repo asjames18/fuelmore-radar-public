@@ -36,3 +36,26 @@ it('never renders a null observation as $0.00 or +0.00% in tooltips',()=>{
  expect(formatChartTooltipValue(1.5,false)).toBe('$1.50')
  expect(formatChartTooltipValue(-2.5,true)).toBe('-2.50%')
 })
+it('reads the latest-observation strip from the same worker feed as the token cards',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  // The merged history's newest FUEL price is $0.012 — a browser-recorded
+  // dashboard point. The worker quote must win so the strip matches the cards.
+  const quotes = {
+    FUEL: { priceUsd: 0.00000403, liquidityUsd: 200000, change24h: -12.34, observedAt: 160000, source: 'dexscreener' },
+    MORE: { priceUsd: null, liquidityUsd: null, change24h: null, observedAt: null, source: null },
+  }
+  render(<MarketChart history={history} quotes={quotes}/>)
+  fireEvent.click(screen.getByRole('button',{name:'Compare USD'}))
+  const strip = screen.getByLabelText('Latest chart observations')
+  expect(strip.textContent).toContain('$0.00000403')
+  expect(strip.textContent).not.toContain('$0.012')
+  // An unsupported worker value stays unknown instead of borrowing history.
+  expect(strip.textContent).toContain('MORE—')
+})
+it('falls back to the merged series in the strip before the first worker fetch',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  render(<MarketChart history={history} quotes={null}/>)
+  fireEvent.click(screen.getByRole('button',{name:'Compare USD'}))
+  const strip = screen.getByLabelText('Latest chart observations')
+  expect(strip.textContent).toContain('$0.012')
+})

@@ -131,8 +131,8 @@ function TokenCards({ data, quotes }: { data: RadarData; quotes: Record<'FUEL' |
   </div>
 }
 
-function MarketsView({ data, history, Risk, onLookupWallet }: { data: RadarData; history: HistoryPoint[]; Risk?: ComponentType<{ data: RadarData }>; onLookupWallet: (address: string) => void }) {  return <>
-    <div className={Risk ? "primary-grid" : undefined}><MarketChart history={history}/>{Risk && <Risk data={data}/>}</div>
+function MarketsView({ data, history, quotes, Risk, onLookupWallet }: { data: RadarData; history: HistoryPoint[]; quotes: Record<'FUEL' | 'MORE', SideQuote> | null; Risk?: ComponentType<{ data: RadarData }>; onLookupWallet: (address: string) => void }) {  return <>
+    <div className={Risk ? "primary-grid" : undefined}><MarketChart history={history} quotes={quotes}/>{Risk && <Risk data={data}/>}</div>
     <DailyFlowCards onLookupWallet={onLookupWallet}/>
     <section className="panel pool-table-panel">
       <div className="panel-heading"><div><h2>Pool execution context</h2><p>Price alone is not executable liquidity</p></div></div>
@@ -249,7 +249,7 @@ function App({ personal }: { personal?: PersonalFeatures }) {
             {Analytics && <Analytics/>}
             <ActivityTable activity={data.activity} sources={data.sources}/>
           </>}
-          {view === 'Markets' && <MarketsView data={data} history={history} Risk={Risk} onLookupWallet={lookupWallet}/>}
+          {view === 'Markets' && <MarketsView data={data} history={history} quotes={quotes} Risk={Risk} onLookupWallet={lookupWallet}/>}
           {view === 'Protocol' && <><ProtocolStats protocol={data.protocol}/><ProtocolFlow protocol={data.protocol}/><BurnChart/><FeePreview/>{Risk && <Risk data={data}/>}</>}
           {view === 'Contracts' && <><ContractRegistry contracts={data.contracts} full/>{Risk && <Risk data={data}/>}</>}
         </>}

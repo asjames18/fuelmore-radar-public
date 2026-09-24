@@ -4,6 +4,7 @@ import { formatUsd, formatChartTooltipValue } from '../lib/format'
 import { track } from '../lib/analytics'
 import { PAIRS, DEXSCREENER } from '../lib/contracts'
 import { marketComparison, type ChartRange } from '../lib/marketComparison'
+import type { SideQuote } from '../lib/history'
 import type { HistoryPoint } from '../lib/types'
 
 type Metric = 'price' | 'liquidity'
@@ -19,7 +20,18 @@ const colors = {FUEL:'#36ff6a',MORE:'#63b3ff'}
 // Parameters from Dexscreener's official "Embed this chart" dialog. Never synthesize OHLC from snapshots.
 const candleUrl = (token: 'FUEL'|'MORE') => `${DEXSCREENER}/${PAIRS[token==='FUEL'?'fuel':'more']}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartDefaultOnMobile=1&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=60`
 
-export function MarketChart({ history }: { history: HistoryPoint[] }) {
+export function MarketChart({ history, quotes }: {
+  history: HistoryPoint[]
+  /**
+   * Worker-owned per-side quotes (the same feed as the token cards). The
+   * chart-quotes strip reads these first so the chart's latest values and
+   * the cards cannot disagree — the merged history's newest point can be a
+   * browser-recorded dashboard-pipeline point from a different feed. Null
+   * until the first worker fetch; then the strip falls back to the merged
+   * series, exactly as before.
+   */
+  quotes?: Record<'FUEL' | 'MORE', SideQuote> | null
+}) {
   const [symbol, setSymbol] = useState<'Compare' | 'FUEL' | 'MORE'>('Compare')
   const [metric, setMetric] = useState<Metric>('price')
   const [view, setView] = useState<View>('candles')
@@ -68,7 +80,13 @@ export function MarketChart({ history }: { history: HistoryPoint[] }) {
       <p className="chart-note">Market candles by Dexscreener · each token has its own USD scale. Use Compare USD to overlay both tokens. If a chart cannot load, use Open chart.</p>
     </> : <>
       <div className="chart-quotes" aria-label="Latest chart observations">{series.map(token=>{
-        const p=points.at(-1); const value=p ? isPrice?(token==='FUEL'?p.fuelPrice:p.morePrice):(token==='FUEL'?p.fuelLiquidity:p.moreLiquidity):null
+        // Same feed as the token cards: when a worker-owned quote exists for
+        // the token its values are used verbatim (nulls stay honest as '—',
+        // never borrowed from another feed), so the strip can never
+        // contradict the cards. The merged series is only the pre-first-fetch
+        // fallback.
+        const q = quotes?.[token]
+        const p=points.at(-1); const value=q ? (isPrice?q.priceUsd:q.liquidityUsd) : (p ? isPrice?(token==='FUEL'?p.fuelPrice:p.morePrice):(token==='FUEL'?p.fuelLiquidity:p.moreLiquidity):null)
         return <div key={token}><span style={{color:colors[token]}}>{token}</span><strong>{formatUsd(value??null,!isPrice)}</strong></div>
       })}</div>
       <div className="chart-wrap" role="img" aria-label={`${symbol} ${metric} ${normalized?'percentage':'USD'} comparison chart. Hover or focus a point for its value.`}>

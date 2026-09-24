@@ -9,16 +9,18 @@ type Props = { pair: PairSnapshot; holders?: HolderSummary; quote?: SideQuote | 
 /**
  * Token card. Price, liquidity, and 24h change come from the worker-owned
  * market series (the same feed as the Markets chart) when available, so the
- * card and the chart cannot disagree. Name, pool identity, volume, and
- * activity counts still come from the dashboard pipeline.
+ * card and the chart cannot disagree. When the worker series cannot support
+ * a value the card shows '—' rather than borrowing a dashboard-pipeline
+ * number from a different feed. Name, pool identity, volume, and activity
+ * counts still come from the dashboard pipeline.
  */
 export function MarketCard({ pair, holders, quote }: Props) {
   const shown: PairSnapshot = quote?.priceUsd != null
     ? {
         ...pair,
         priceUsd: quote.priceUsd,
-        liquidityUsd: quote.liquidityUsd ?? pair.liquidityUsd,
-        change24h: quote.change24h ?? pair.change24h,
+        liquidityUsd: quote.liquidityUsd,
+        change24h: quote.change24h,
       }
     : pair
   const change = shown.change24h

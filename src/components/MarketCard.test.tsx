@@ -48,3 +48,15 @@ it('falls back to dashboard values when the worker quote has no price', () => {
   expect(screen.getByText('$0.00000622')).toBeDefined()
   expect(screen.getByText('+1.50%')).toBeDefined()
 })
+
+it('shows honest unknowns for unsupported worker values instead of borrowing dashboard values', () => {
+  // Worker price present, but the series cannot support liquidity or a 24h
+  // change: the card must not mix in the dashboard pipeline's numbers.
+  const quote: SideQuote = { priceUsd: 0.00000403, liquidityUsd: null, change24h: null, observedAt: Date.now(), source: 'dexscreener' }
+  render(<MarketCard pair={pair} quote={quote}/>)
+  expect(screen.getByText('$0.00000403')).toBeDefined()
+  const grid = screen.getByText('Liquidity').closest('div')!.parentElement!
+  expect(grid.textContent).toContain('Liquidity—')
+  expect(screen.queryByText('+1.50%')).toBeNull()
+  expect(screen.queryByText('$100K')).toBeNull()
+})
