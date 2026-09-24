@@ -118,7 +118,11 @@ export async function checkPipelineFreshness(env, options = {}) {
   // GitHub dispatch, so this age never feeds the stale/dispatch decision.
   const marketAge = await readAgeMinutes(env, config.marketKey, marketTimestamp, nowMs)
   const ages = { dashboard: dashboardAge, activity: activityAge, market: marketAge }
-  const stale = !Number.isFinite(dashboardAge) || dashboardAge > config.staleMinutes || !Number.isFinite(activityAge) || activityAge > config.staleMinutes
+  // The dashboard snapshot is worker-owned (rebuilt on the 5-minute cron by
+  // runDashboardSnapshot), so only the activity report — still built by the
+  // GitHub publisher until its worker port lands — can trigger a dispatch.
+  // dashboardAge stays in the result for diagnostics.
+  const stale = !Number.isFinite(activityAge) || activityAge > config.staleMinutes
 
   if (!stale) return { checked: true, stale: false, dispatched: false, ages, reason: 'fresh' }
 

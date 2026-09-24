@@ -10,6 +10,7 @@ import { createRpcBudget, validateReadBudget, fetchRpcWithinBudget, readLimitedB
 import { runMarketSnapshot, readMarketHistory } from './market-collect.mjs'
 import { runBurnCollector } from './burn-collect.mjs'
 import { runMinterCollector } from './minter-collect.mjs'
+import { runDashboardSnapshot } from './dashboard-collect.mjs'
 import { checkPipelineFreshness } from './watchdog.mjs'
 
 const rpcCache = new Map()
@@ -317,6 +318,14 @@ export default {
     // here because this trigger fires every five minutes. Never blocks the
     // market snapshot; failures back off 15 minutes via last_attempt_ts.
     ctx.waitUntil(runMinterCollectorHourly(env))
+    // Dashboard snapshot: rebuild the homepage snapshot (pairs, contracts,
+    // holders, recent activity, protocol) on this 5-minute tick so every
+    // section of the site stays as fresh as the free tier allows. Previously
+    // built by the GitHub publisher on a ~3h cadence (gaps up to 7h). Merges
+    // over the previous snapshot, retaining prior sections when a source
+    // fails; writes D1-only (no KV mirror) to protect the KV write cap.
+    // Never throws and never blocks the market snapshot.
+    ctx.waitUntil(runDashboardSnapshot(env))
     // Force a GitHub publisher run when the activity pipeline has gone quiet.
     // This never throws and never blocks the market snapshot above. The check
     // result is logged (Workers observability) and persisted to KV so a silent

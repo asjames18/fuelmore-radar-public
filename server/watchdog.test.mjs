@@ -153,11 +153,33 @@ it('falls back to KV when the D1 read fails', async () => {
   assert.equal(result.reason, 'dispatched')
 })
 
-it('ignores a corrupt snapshot body and treats it as stale', async () => {
-  const kv = makeKv({ [WATCHDOG.dashboardKey]: 'not-json{{{', [WATCHDOG.activityKey]: activity(10) })
+it('ignores a corrupt activity body and treats it as stale', async () => {
+  // A corrupt activity report still needs the GitHub publisher, so it
+  // dispatches. A corrupt dashboard body does not (the Worker rebuilds it on
+  // the 5-minute cron).
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(10), [WATCHDOG.activityKey]: 'not-json{{{' })
   let fetched = false
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
   assert.equal(result.stale, true)
   assert.equal(result.dispatched, true)
   assert.equal(fetched, true)
+})
+
+it('does not dispatch when only the dashboard is stale (worker-owned)', async () => {
+  // The dashboard snapshot is rebuilt by the Worker's 5-minute cron; a stale
+  // dashboard alone must not revive the GitHub publisher. The activity report
+  // is still publisher-built, so a stale activity report still dispatches.
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(10), [WATCHDOG.marketKey]: market(10) })
+  let fetched = false
+  const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 300, activity: 10, market: 10 }, reason: 'fresh' })
+  assert.equal(fetched, false)
+})
+
+it('dispatches when the activity report is stale even with a fresh dashboard', async () => {
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(5), [WATCHDOG.activityKey]: activity(300) })
+  const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => new Response(null, { status: 204 }) })
+  assert.equal(result.stale, true)
+  assert.equal(result.dispatched, true)
+  assert.equal(result.reason, 'dispatched')
 })
