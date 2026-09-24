@@ -403,8 +403,12 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
      * into each JSON-RPC batch — one subrequest per batch. Topics may be null.
      * Built for the worker's 50-subrequest free-tier budget: 40 calls x 10
      * blocks per batch keeps a 16k-block tick to ~43 external subrequests.
+     * `pacingMs` optionally sleeps before each batch dispatch: the provider
+     * 429-rate-limits bursty batch traffic (observed 2026-09-24), and the
+     * retry backoff then blows the worker's run deadline — pacing keeps the
+     * scan inside it.
      */
-    async logsBatched({ address, topics = null, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40 }) {
+    async logsBatched({ address, topics = null, fromBlock, toBlock, rangeBlocks = 10n, batchCalls = 40, pacingMs = 0 }) {
       const ranges = []
       for (let start = BigInt(fromBlock); start <= BigInt(toBlock); start += rangeBlocks) {
         const end = start + rangeBlocks - 1n < toBlock ? start + rangeBlocks - 1n : toBlock
@@ -413,6 +417,7 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
       const callBatches = []
       for (let i = 0; i < ranges.length; i += batchCalls) callBatches.push(ranges.slice(i, i + batchCalls))
       const parts = await mapConcurrent(callBatches, concurrency, async (rs) => {
+        if (pacingMs > 0) await new Promise((r) => setTimeout(r, pacingMs))
         const results = await batch(
           rs.map(([s, e]) => {
             const filter = { address, fromBlock: toMinHex(s), toBlock: toMinHex(e) }

@@ -5,6 +5,7 @@ import {
   BUY_AND_BURN_TOPIC,
   BURNS_KEY,
   BURN_META_KEY,
+  BURN_BATCH_PACING_MS,
   decodeBurnLog,
   utcDate,
   aggregateDripsDetail,
@@ -222,6 +223,23 @@ describe('runBurnCollector', () => {
     assert.equal(res.ok, false)
     assert.equal(res.reason, 'kv-unavailable')
   })
+
+  it('records the failure reason in the meta without moving the watermark', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '69497245', last_run_ts: 1, status: 'ok' }))
+    const chain = fakeChain({ logs: [], head: 69500000n })
+    chain.logsBatched = async () => {
+      throw new Error('boom')
+    }
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'scan-failed')
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '69497245')
+    assert.equal(meta.status, 'error')
+    assert.equal(meta.reason, 'scan-failed')
+    assert.ok(meta.last_run_ts > 1)
+  })
 })
 
 describe('seed watermark fallback', () => {
@@ -304,6 +322,9 @@ describe('provider log-range chunking', () => {
     // <=10 blocks in a single batch (one subrequest).
     assert.equal(batchedArgs.rangeBlocks, 10n)
     assert.equal(batchedArgs.batchCalls, 40)
+    // Batches are paced: bursty batch traffic 429s the provider and the
+    // retry backoff would blow the worker's run deadline.
+    assert.equal(batchedArgs.pacingMs, BURN_BATCH_PACING_MS)
     assert.equal(chain.seenBatches.length, 1)
     assert.equal(chain.seenBatches[0].length, 4)
     const ranges = chain.seenBatches[0]

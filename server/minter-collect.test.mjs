@@ -728,4 +728,24 @@ describe('chain reader RPC error diagnosability', () => {
     assert.deepEqual(batches.map((b) => b.length), [40, 40, 20])
     assert.equal(logs2.length, 100)
   })
+
+  it('logsBatched paces batch dispatches when pacingMs is set', async () => {
+    const timedFetch = async (url, opts) => {
+      const payload = JSON.parse(opts.body)
+      const replies = payload.map((call) => ({ jsonrpc: '2.0', id: call.id, result: [] }))
+      return { ok: true, json: async () => replies }
+    }
+    const chain = createChainReader({ fetchImpl: timedFetch })
+    const t0 = Date.now()
+    // 1000 blocks -> 100 ranges -> 3 batches; each of the 3 lanes sleeps
+    // pacingMs before its batch, so elapsed must cover at least one sleep.
+    const logs = await chain.logsBatched({ address: '0xabc', fromBlock: 0n, toBlock: 999n, pacingMs: 120 })
+    const elapsed = Date.now() - t0
+    assert.equal(logs.length, 0)
+    assert.ok(elapsed >= 100, `expected pacing delay, elapsed ${elapsed}ms`)
+    // No pacing by default: same scan completes without the sleep.
+    const t1 = Date.now()
+    await chain.logsBatched({ address: '0xabc', fromBlock: 0n, toBlock: 999n })
+    assert.ok(Date.now() - t1 < 100, 'unpaced scan unexpectedly slow')
+  })
 })

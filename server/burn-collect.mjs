@@ -44,10 +44,14 @@ export const BURN_MAX_RUN_BLOCKS = 16000n
 // eth_getLogs at a 10-block range (observed 2026-09-24: "Under the Free tier
 // plan, you can make eth_getLogs requests with up to a 10 block range").
 // Calls are packed BURN_LOG_BATCH_CALLS-per-batch so one subrequest covers
-// 400 blocks (verified: 25-call batches succeed; 40 is under the observed
-// 429 threshold and rpcFetch retries 429s with backoff).
+// 400 blocks. Batch pacing (observed 2026-09-24): firing the batches in a
+// burst 429-rate-limits the provider; the retry backoff then blows the
+// worker's run deadline, so batches are paced at BURN_BATCH_PACING_MS with
+// BURN_RPC_CONCURRENCY lanes — the scan stays well inside the deadline.
 export const BURN_LOG_CHUNK_BLOCKS = 10n
 export const BURN_LOG_BATCH_CALLS = 40
+export const BURN_BATCH_PACING_MS = 400
+export const BURN_RPC_CONCURRENCY = 3
 export const BURN_RUN_DEADLINE_MS = 4 * 60 * 1000
 
 export const BURN_METHODOLOGY =
@@ -206,6 +210,28 @@ async function readBurnMeta(kv) {
 }
 
 /**
+ * Best-effort failure record: the watermark only advances on success, so a
+ * failing collector would otherwise be invisible (the meta keeps its old
+ * 'seeded'/'ok' status forever). Records the failure reason without moving
+ * last_block, so the next tick retries from the same watermark.
+ */
+async function recordBurnMetaError(kv, lastBlock, reason) {
+  try {
+    await kv.put(
+      BURN_META_KEY,
+      JSON.stringify({
+        last_block: lastBlock != null ? lastBlock.toString() : null,
+        last_run_ts: Math.floor(Date.now() / 1000),
+        status: 'error',
+        reason,
+      }),
+    )
+  } catch {
+    // Diagnostics are best-effort; the error is already logged.
+  }
+}
+
+/**
  * Hourly run: fetch new BuyAndBurn events from the watermark to head,
  * merge into the daily series, write KV. All-or-nothing: the watermark
  * advances only after the series write succeeds.
@@ -221,7 +247,7 @@ export async function runBurnCollector(env, options = {}) {
   const kv = env.ACTIVITY
   const fetchImpl = options.fetchImpl ?? fetch
   const rpcUrl = options.rpcUrl ?? resolveRpcUrl(env)
-  const chain = options.chain ?? createChainReader({ fetchImpl, rpcUrl })
+  const chain = options.chain ?? createChainReader({ fetchImpl, rpcUrl, concurrency: BURN_RPC_CONCURRENCY })
   const deadline = options.deadline ?? Date.now() + BURN_RUN_DEADLINE_MS
 
   let meta
@@ -235,6 +261,7 @@ export async function runBurnCollector(env, options = {}) {
     head = await chain.headBlock()
   } catch (error) {
     console.error('burn collector: head block unreadable:', error?.message ?? error)
+    await recordBurnMetaError(kv, meta.lastBlock, 'head-unreadable')
     return { ok: false, reason: 'head-unreadable' }
   }
   const fromBlock = await (async () => {
@@ -261,6 +288,8 @@ export async function runBurnCollector(env, options = {}) {
   // budget (one subrequest per BURN_LOG_BATCH_CALLS calls via logsBatched).
   // A single call over the whole run range is rejected by the provider;
   // one call per chunk trips the worker's subrequest limit instead.
+  // Batches are paced (BURN_BATCH_PACING_MS): bursty batches 429 the
+  // provider and the retry backoff would blow the run deadline.
   let logs
   try {
     logs = await chain.logsBatched({
@@ -270,13 +299,16 @@ export async function runBurnCollector(env, options = {}) {
       toBlock: runTo,
       rangeBlocks: BURN_LOG_CHUNK_BLOCKS,
       batchCalls: BURN_LOG_BATCH_CALLS,
+      pacingMs: BURN_BATCH_PACING_MS,
     })
   } catch (error) {
     console.error('burn collector: log scan failed:', error?.message ?? error)
+    await recordBurnMetaError(kv, meta.lastBlock, 'scan-failed')
     return { ok: false, reason: 'scan-failed' }
   }
   if (Date.now() > deadline) {
     console.error('burn collector: deadline exceeded after log scan')
+    await recordBurnMetaError(kv, meta.lastBlock, 'deadline')
     return { ok: false, reason: 'deadline' }
   }
 
@@ -291,6 +323,7 @@ export async function runBurnCollector(env, options = {}) {
     stored = await kv.get(BURNS_KEY, 'json')
   } catch (error) {
     console.error('burn collector: series read failed:', error?.message ?? error)
+    await recordBurnMetaError(kv, meta.lastBlock, 'series-unreadable')
     return { ok: false, reason: 'series-unreadable' }
   }
 
@@ -301,6 +334,7 @@ export async function runBurnCollector(env, options = {}) {
       tsByBlock = await chain.blockTimestamps(drips.map((d) => d.blockNumber))
     } catch (error) {
       console.error('burn collector: block timestamps unreadable:', error?.message ?? error)
+      await recordBurnMetaError(kv, meta.lastBlock, 'timestamps-unreadable')
       return { ok: false, reason: 'timestamps-unreadable' }
     }
     const freshByDate = aggregateDripsDetail(drips, tsByBlock)
