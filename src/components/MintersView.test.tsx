@@ -56,12 +56,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('renders the minter table with claimed, sold, pct and re-mints', async () => {
+it('renders the minter table with claimed, sold, bought, pct and re-mints', async () => {
   mockFetch(payload)
   render(<MintersView onLookupWallet={() => {}} />)
   await waitFor(() => expect(screen.getByRole('table')).toBeTruthy())
   const table = screen.getByRole('table')
   expect(within(table).getAllByText('100.1M').length).toBe(2)
+  expect(within(table).getByText('2,096')).toBeTruthy()
+  expect(within(table).getByText('2,389')).toBeTruthy()
   expect(within(table).getAllByText('100.0%').length).toBe(2)
   expect(within(table).getByText('245')).toBeTruthy()
   expect(within(table).getByText('0.0770 ETH')).toBeTruthy()

@@ -76,10 +76,13 @@ export function Guide() {
       <div className="guide-body">
         <p>
           Every wallet that claimed FUEL from mint positions gets a row: how much
-          it claimed, how much it sold into the pool, and the percentage sold.
-          Re-minted counts the new mint positions it opened after its first sale,
+          it claimed, how much it sold into the pool, how much it bought back,
+          and the percentage sold. Re-minted counts the new mint positions it
+          opened after its first sale,
           plus the ETH fees it paid for them — the claim, dump, and re-mint loop,
-          measured per wallet. Tap any wallet to look it up in the Cockpit.
+          measured per wallet. % sold can exceed 100% when a wallet also bought
+          FUEL, since sold counts every pool sale after its first claim. Tap any
+          wallet to look it up in the Cockpit.
         </p>
         <p>
           Mints land in per-position contracts first, so claimed FUEL is attributed

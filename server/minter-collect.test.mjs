@@ -203,19 +203,19 @@ describe('scanRange', () => {
   })
 })
 
-describe('scanRange batched transport', () => {
-  it('scans via logsBatched with 10-block ranges (provider getLogs range cap)', async () => {
+describe('scanRange log transport', () => {
+  it('scans via single large-range chain.logs calls (no batched 10-block ranges)', async () => {
     const calls = []
     const chain = stubChain({})
-    chain.logsBatched = async (args) => {
+    chain.logs = async (args) => {
       calls.push(args)
       return []
     }
-    chain.logs = async () => {
-      throw new Error('scanRange must not use the chunked chain.logs transport')
+    chain.logsBatched = async () => {
+      throw new Error('scanRange must not use the batched transport (provider 429s)')
     }
     await scanRange(chain, 90n, 110n, { transferTopics: [STANDARD_TRANSFER_TOPIC] })
-    // Three scans: FUEL transfers, pool swaps, minter events.
+    // Three scans: FUEL transfers, pool swaps, minter events — one call each.
     assert.equal(calls.length, 3)
     const addrs = calls.map((c) => String(c.address).toLowerCase()).sort()
     assert.deepEqual(
@@ -223,27 +223,24 @@ describe('scanRange batched transport', () => {
       [BATCH_MINTER.toLowerCase(), FUEL_TOKEN.toLowerCase(), FUEL_WETH_POOL.toLowerCase()].sort(),
     )
     for (const c of calls) {
-      assert.equal(c.rangeBlocks, 10n)
-      assert.equal(c.batchCalls, 100)
-      assert.equal(c.pacingMs, 2500)
-      assert.equal(c.batchConcurrency, 1)
-      assert.equal(BigInt(c.toBlock) - BigInt(c.fromBlock), 20n)
+      assert.equal(BigInt(c.fromBlock), 90n)
+      assert.equal(BigInt(c.toBlock), 110n)
     }
   })
 
-  it('discovers transfer topics via the batched transport', async () => {
-    let batched = 0
+  it('discovers transfer topics via a single chain.logs call', async () => {
+    let logged = 0
     const chain = stubChain({})
-    const orig = chain.logsBatched.bind(chain)
-    chain.logsBatched = async (args) => {
-      batched++
+    const orig = chain.logs.bind(chain)
+    chain.logs = async (args) => {
+      logged++
       return orig(args)
     }
-    chain.logs = async () => {
-      throw new Error('discoverTransferTopics must not use the chunked chain.logs transport')
+    chain.logsBatched = async () => {
+      throw new Error('discoverTransferTopics must not use the batched transport')
     }
     const topics = await discoverTransferTopics(chain, 90n, 110n)
-    assert.equal(batched, 1)
+    assert.equal(logged, 1)
     assert.ok(topics.map((t) => t.toLowerCase()).includes(STANDARD_TRANSFER_TOPIC.toLowerCase()))
   })
 })

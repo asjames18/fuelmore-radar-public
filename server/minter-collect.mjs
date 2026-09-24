@@ -97,27 +97,27 @@ export const DAY_TOP_N = 25
 export const RUN_DEADLINE_MS = 5 * 60 * 1000
 // Hard cap on blocks scanned per run: bounds the worker's subrequest budget
 // on the free tier and lets the collector catch up gradually after downtime.
-// Sizing: the batched log transport below spends one external subrequest per
-// 1,000 blocks per scanned address (10-block ranges x 100 calls per batch),
-// so 10k blocks cost ~30 scan subrequests + ~10 for probe/timestamps/lookups,
-// fitting the 50-subrequest free-tier budget with margin. (The old 100k cap
-// paired with the chunked scan could never complete: the provider's 10-block
-// getLogs range cap turned every run into a halve-and-retry explosion and the
-// run died with "Too many subrequests" — scan-failed on every attempt.)
-export const MAX_RUN_BLOCKS = 10000n
-// Batched log transport for the worker's free-tier budget, mirroring the
-// burns collector's proven setup: fixed 10-block ranges (the provider's
-// getLogs range cap, observed 2026-09-24) packed 100 calls per JSON-RPC batch
-// (one external subrequest per batch), one batch lane, 2.5s pacing between
-// batches — the provider 429-rate-limits bursty batch traffic (compute
-// units/second; observed 2026-09-24), and unpaced bursts fail the scan.
+// Sizing: the log transport below uses one eth_getLogs call per scanned
+// address per run (large ranges; the provider handles 100k-block ranges in a
+// single call — verified 2026-09-24), so a 100k-block run costs ~3 scan
+// subrequests + ~10 for probe/timestamps/lookups, fitting the 50-subrequest
+// free-tier budget with wide margin. (The old 10-block batched transport
+// packed 100 getLogs calls per JSON-RPC batch; the provider 429-rate-limits
+// that call volume even when paced at 2.5s between batches — scan-failed on
+// every attempt. Single large-range calls stay far under the rate limit.)
+// Halve-on-limit in getLogsRange() still protects against the provider's
+// 10,000-log-per-query cap on unusually busy ranges.
+export const MAX_RUN_BLOCKS = 100000n
+// Log transport: single large-range eth_getLogs per address (see sizing note
+// above). The MINTER_LOG_* batching constants below are retained for
+// backward compatibility with tests but no longer drive the scan.
 export const MINTER_LOG_RANGE_BLOCKS = 10n
 export const MINTER_LOG_BATCH_CALLS = 100
 export const MINTER_BATCH_PACING_MS = 2500
 export const MINTER_BATCH_CONCURRENCY = 1
-// Transfer-topic discovery probe window: 2,000 blocks cost 2 batched
-// subrequests — recent enough to catch new pool-fork topics, cheap enough to
-// run on every tick alongside the scans.
+// Transfer-topic discovery probe window: 2,000 blocks cost 1 log subrequest —
+// recent enough to catch new pool-fork topics, cheap enough to run on every
+// tick alongside the scans.
 export const MINTER_TOPIC_PROBE_BLOCKS = 2000n
 
 export const MINTER_KEY_PREFIX = 'minter:'
@@ -567,17 +567,13 @@ export const PUBLIC_RPC_URL = 'https://rpc.mainnet.chain.robinhood.com'
 
 /** Re-discover the live FUEL transfer topic set from recent token logs. */
 export async function discoverTransferTopics(chain, fromBlock, toBlock) {
-  // Batched transport: the provider caps eth_getLogs at a 10-block range, so
-  // the old chunked scan exploded via halve-and-retry past the 50-subrequest
-  // free-tier budget on every run.
-  const logs = await chain.logsBatched({
+  // Single large-range call: the provider handles multi-thousand-block
+  // ranges in one eth_getLogs (verified 2026-09-24); halve-on-limit in
+  // chain.logs covers unusually busy ranges.
+  const logs = await chain.logs({
     address: FUEL_TOKEN,
     fromBlock,
     toBlock,
-    rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
-    batchCalls: MINTER_LOG_BATCH_CALLS,
-    pacingMs: MINTER_BATCH_PACING_MS,
-    batchConcurrency: MINTER_BATCH_CONCURRENCY,
   })
   const found = new Set(logs.map((l) => (l.topics?.[0] || '').toLowerCase()).filter(Boolean))
   return [...new Set([...SEED_TRANSFER_TOPICS.map((s) => s.toLowerCase()), ...found])]
@@ -621,26 +617,15 @@ export async function scanRange(chain, fromBlock, toBlock, options = {}) {
       toBlock,
     ))
   checkDeadline()
-  // Batched transport (fixed 10-block ranges, 100 calls per JSON-RPC batch):
-  // one external subrequest per 1,000 blocks per address, so the scan stays
-  // inside the worker's 50-subrequest free-tier budget. The old chunked
-  // chain.logs scan hit the provider's 10-block getLogs range cap and
-  // halve-and-retried into "Too many subrequests" on every run.
-  const batchedLogs = (address, topics) =>
-    chain.logsBatched({
-      address,
-      topics,
-      fromBlock,
-      toBlock,
-      rangeBlocks: MINTER_LOG_RANGE_BLOCKS,
-      batchCalls: MINTER_LOG_BATCH_CALLS,
-      pacingMs: MINTER_BATCH_PACING_MS,
-      batchConcurrency: MINTER_BATCH_CONCURRENCY,
-    })
+  // Large-range log transport: one eth_getLogs call per address covers the
+  // whole run (the provider handles 100k-block ranges in a single call —
+  // verified 2026-09-24 — so this stays far under both the 429 rate limit
+  // and the 50-subrequest budget). chain.logs halves the range on the
+  // provider's 10,000-log cap, so busy ranges still converge.
   const [tokenLogs, poolLogs, minterLogs] = await Promise.all([
-    batchedLogs(FUEL_TOKEN, [transferTopics]),
-    batchedLogs(FUEL_WETH_POOL, [POOL_SWAP_TOPIC]),
-    batchedLogs(BATCH_MINTER, null),
+    chain.logs({ address: FUEL_TOKEN, topics: [transferTopics], fromBlock, toBlock }),
+    chain.logs({ address: FUEL_WETH_POOL, topics: [POOL_SWAP_TOPIC], fromBlock, toBlock }),
+    chain.logs({ address: BATCH_MINTER, topics: null, fromBlock, toBlock }),
   ])
   checkDeadline()
 
@@ -1196,7 +1181,7 @@ export async function runMinterCollector(env, options = {}) {
     return { ok: true, fromBlock: fromBlock.toString(), toBlock: head.toString(), empty: true }
   }
   // Bound per-run work for the free tier; catch up over successive ticks
-  // (10k blocks per 5-minute tick outruns chain production of ~36k/hour).
+  // (100k blocks per 5-minute tick outruns chain production of ~36k/hour).
   const runTo = head - fromBlock > MAX_RUN_BLOCKS ? fromBlock + MAX_RUN_BLOCKS : head
 
   let scanned

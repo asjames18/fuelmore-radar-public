@@ -344,10 +344,11 @@ export default {
     )
     // Minter collector: it was never wired into a runner, so /api/flows/daily
     // sat at status "collecting" forever and minter rows only refreshed from
-    // sandbox backfills. Runs on every 5-minute tick (10k-block cap per run,
+    // sandbox backfills. Runs on every 5-minute tick (100k-block cap per run,
     // catches up over successive ticks, all-or-nothing with its own
-    // watermark) — the scan uses the batched log transport so each run fits
-    // the free-tier subrequest budget. Never blocks the market snapshot;
+    // watermark) — the scan uses single large-range eth_getLogs calls so each
+    // run fits the free-tier subrequest budget and stays under the provider
+    // rate limit. Never blocks the market snapshot;
     // failures back off an hour via last_attempt_ts.
     ctx.waitUntil(runMinterCollectorTick(env))
     // Dashboard snapshot: rebuild the homepage snapshot (pairs, contracts,

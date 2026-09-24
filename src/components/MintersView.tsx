@@ -3,12 +3,13 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import { fetchMinters, type MinterRow } from '../lib/minter'
 import { shortAddress, timeAgo } from '../lib/format'
 
-type SortKey = 'claimed' | 'sold' | 'pct_sold' | 'remint_count' | 'last_active_ts'
+type SortKey = 'claimed' | 'sold' | 'bought' | 'pct_sold' | 'remint_count' | 'last_active_ts'
 type Dir = 'asc' | 'desc'
 
 const COLUMNS: Array<{ key: SortKey; label: string }> = [
   { key: 'claimed', label: 'Claimed' },
   { key: 'sold', label: 'Sold' },
+  { key: 'bought', label: 'Bought' },
   { key: 'pct_sold', label: '% sold' },
   { key: 'remint_count', label: 'Re-minted' },
   { key: 'last_active_ts', label: 'Last active' },
@@ -78,7 +79,7 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
       <div className="panel-heading">
         <div>
           <h2 id="minters-title">Minters</h2>
-          <p>Wallets that claimed FUEL from mints — claimed, sold, and re-minted</p>
+          <p>Wallets that claimed FUEL from mints — claimed, sold, bought, and re-minted</p>
         </div>
       </div>
       {failed ? (
@@ -130,6 +131,7 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
                   </td>
                   <td className="mono">{fmtFuel(row.claimed)}</td>
                   <td className="mono">{fmtFuel(row.sold)}</td>
+                  <td className="mono">{fmtFuel(row.bought)}</td>
                   <td className="mono">{fmtPct(row.pct_sold)}</td>
                   <td className="mono">
                     {row.remint_count == null ? (
