@@ -261,3 +261,20 @@ it('runDashboardSnapshot never throws when every source fails', async () => {
   assert.ok(decoded.sources.every((s) => s.status === 'unavailable'))
   assert.equal(decoded.pairs.length, 0)
 })
+
+it('builds keyless explorer URLs without a secret and keyed URLs with one', async () => {
+  stubFetchAll()
+  const seen = []
+  const failing = globalThis.fetch
+  globalThis.fetch = async (url, init) => { seen.push(String(url)); return failing(url, init) }
+  await buildDashboard({ RPC_URL: 'https://rpc.example' })
+  const explorerCalls = seen.filter((u) => u.includes('api.blockscout.com'))
+  assert.ok(explorerCalls.length > 0)
+  assert.ok(explorerCalls.every((u) => !u.includes('apikey')))
+
+  seen.length = 0
+  await buildDashboard({ RPC_URL: 'https://rpc.example', BLOCKSCOUT_API_KEY: 'test-key-123' })
+  const keyedCalls = seen.filter((u) => u.includes('api.blockscout.com'))
+  assert.ok(keyedCalls.length > 0)
+  assert.ok(keyedCalls.every((u) => u.includes('apikey=test-key-123')))
+})

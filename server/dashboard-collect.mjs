@@ -71,14 +71,21 @@ const SELECTOR = {
 
 const DEX_PAIR_API = 'https://api.dexscreener.com/latest/dex/pairs/robinhood'
 /**
- * Blockscout-hosted API for Robinhood Chain (indexed; free, keyless). This is
- * the same endpoint the GitHub publisher prefers with its API key. The
- * official robinhoodchain.blockscout.com explorer rate-limits the Worker's
- * egress IPs (observed 2026-09-24: every explorer read failed while
- * DexScreener and direct RPC stayed green), so the worker uses the
- * Blockscout-hosted endpoint with the publisher's 4 req/s throttle.
+ * Blockscout-hosted API for Robinhood Chain (indexed). This is the same
+ * endpoint the GitHub publisher prefers. Keyless requests are rejected with
+ * HTTP 402, so the worker needs the BLOCKSCOUT_API_KEY secret (the same free
+ * key the publisher already uses in GitHub Secrets) for these reads; without
+ * it the explorer sections are honestly retained from the previous snapshot.
+ * The official robinhoodchain.blockscout.com explorer is not a fallback: it
+ * blocks non-browser clients (403/connection resets observed 2026-09-24).
  */
-const BLOCKSCOUT_API = 'https://api.blockscout.com/4663/api/v2'
+const BLOCKSCOUT_HOST = 'https://api.blockscout.com/4663/api/v2'
+
+const explorerUrl = (env) => {
+  const key = env?.BLOCKSCOUT_API_KEY
+  const suffix = typeof key === 'string' && key.trim() !== '' ? `?apikey=${encodeURIComponent(key.trim())}` : ''
+  return (path) => `${BLOCKSCOUT_HOST}${path}${suffix}`
+}
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -151,8 +158,8 @@ async function fetchPair(pairAddress) {
   }
 }
 
-async function fetchContractStatus(contract) {
-  const data = await json(`${BLOCKSCOUT_API}/smart-contracts/${contract.address}`)
+async function fetchContractStatus(contract, api) {
+  const data = await json(api(`/smart-contracts/${contract.address}`))
   return {
     ...contract,
     reachable: true,
@@ -163,10 +170,10 @@ async function fetchContractStatus(contract) {
   }
 }
 
-async function fetchHolderSummary(address) {
+async function fetchHolderSummary(address, api) {
   const [meta, holders] = await Promise.all([
-    json(`${BLOCKSCOUT_API}/tokens/${address}`),
-    json(`${BLOCKSCOUT_API}/tokens/${address}/holders`),
+    json(api(`/tokens/${address}`)),
+    json(api(`/tokens/${address}/holders`)),
   ])
   const supply = BigInt(meta.total_supply)
   const percent = (value) => (supply > 0n ? Number((BigInt(value) * 10_000n) / supply) / 100 : null)
@@ -200,8 +207,8 @@ const unavailableHolders = () => ({
   topHolders: null,
 })
 
-async function fetchTransfers(address) {
-  const data = await json(`${BLOCKSCOUT_API}/tokens/${address}/transfers`)
+async function fetchTransfers(address, api) {
+  const data = await json(api(`/tokens/${address}/transfers`))
   const zero = /^0x0{40}$/i
   const dead = /^0x0{36}dead$/i
   const poolAddresses = Object.values(PAIRS).map((item) => item.toLowerCase())
@@ -505,6 +512,7 @@ const emptyProtocol = () => ({
  * race in parallel with per-source success tracking.
  */
 export async function buildDashboard(env) {
+  const api = explorerUrl(env)
   const checked = new Map()
   const track = async (name, promise) => {
     try {
@@ -522,7 +530,7 @@ export async function buildDashboard(env) {
   const contractResults = []
   for (const contract of CONTRACTS) {
     try {
-      contractResults.push({ status: 'fulfilled', value: await track('Blockscout contracts', fetchContractStatus(contract)) })
+      contractResults.push({ status: 'fulfilled', value: await track('Blockscout contracts', fetchContractStatus(contract, api)) })
     } catch (reason) {
       contractResults.push({ status: 'rejected', reason })
     }
@@ -531,10 +539,10 @@ export async function buildDashboard(env) {
   checked.set('Blockscout contracts', new Date().toISOString())
 
   const [fuelHolders, moreHolders, fuelActivity, moreActivity, protocol] = await Promise.allSettled([
-    track('FUEL holders', fetchHolderSummary(CONTRACTS[0].address)),
-    track('MORE holders', fetchHolderSummary(CONTRACTS[1].address)),
-    track('FUEL transfers', fetchTransfers(CONTRACTS[0].address)),
-    track('MORE transfers', fetchTransfers(CONTRACTS[1].address)),
+    track('FUEL holders', fetchHolderSummary(CONTRACTS[0].address, api)),
+    track('MORE holders', fetchHolderSummary(CONTRACTS[1].address, api)),
+    track('FUEL transfers', fetchTransfers(CONTRACTS[0].address, api)),
+    track('MORE transfers', fetchTransfers(CONTRACTS[1].address, api)),
     track('Protocol RPC reads', fetchProtocolWithFailover(env)),
   ])
 
