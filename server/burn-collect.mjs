@@ -33,23 +33,29 @@ export const BURNS_KEY = 'burns:daily'
 export const BURN_META_KEY = 'meta:burn-collector'
 
 export const BURN_FIRST_BLOCK = 63115000n
-// Per-run block budget: 16,000 blocks = 40 batches x 40 calls x 10 blocks.
-// Subrequest math (worker free tier: 50 external subrequests/invocation):
-// ~40 log batches + head + timestamp lookups ~= 43, leaving headroom for
-// the market snapshot's own fetches in the same tick. 16k blocks/tick
-// outpaces the chain's ~14k blocks per 15-minute tick, so the watermark
-// converges over successive runs instead of falling behind.
+// Per-run block budget: 16,000 blocks = 16 batches x 100 calls x 10 blocks.
+// Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
+// shared by the market snapshot and watchdog running in the same tick):
+// 16 log batches + head ~= 17, leaving headroom for the market snapshot's
+// own fetches in the same tick. 16k blocks/tick outpaces the chain's ~14k
+// blocks per 15-minute tick, so the watermark converges over successive
+// runs instead of falling behind.
 export const BURN_MAX_RUN_BLOCKS = 16000n
 // eth_getLogs range size per call. The RPC provider's free tier caps
 // eth_getLogs at a 10-block range (observed 2026-09-24: "Under the Free tier
 // plan, you can make eth_getLogs requests with up to a 10 block range").
 // Calls are packed BURN_LOG_BATCH_CALLS-per-batch so one subrequest covers
-// 400 blocks. Batch pacing (observed 2026-09-24): firing the batches in a
+// 1000 blocks. Batch pacing (observed 2026-09-24): firing the batches in a
 // burst 429-rate-limits the provider; the retry backoff then blows the
 // worker's run deadline, so batches are paced at BURN_BATCH_PACING_MS with
 // BURN_RPC_CONCURRENCY lanes — the scan stays well inside the deadline.
+// Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
+// shared by every ctx.waitUntil in the tick — observed 2026-09-24: the
+// market snapshot's own fetches failed with "Too many subrequests" when the
+// burn scan ran 40 batches beside it): 16 log batches + head ~= 17, leaving
+// real headroom for the market snapshot's fetches and the watchdog.
 export const BURN_LOG_CHUNK_BLOCKS = 10n
-export const BURN_LOG_BATCH_CALLS = 40
+export const BURN_LOG_BATCH_CALLS = 100
 export const BURN_BATCH_PACING_MS = 400
 export const BURN_RPC_CONCURRENCY = 3
 export const BURN_RUN_DEADLINE_MS = 4 * 60 * 1000
@@ -215,8 +221,14 @@ async function readBurnMeta(kv) {
  * 'seeded'/'ok' status forever). Records the failure reason without moving
  * last_block, so the next tick retries from the same watermark.
  */
-async function recordBurnMetaError(kv, lastBlock, reason) {
+async function recordBurnMetaError(kv, lastBlock, reason, error) {
   try {
+    const detail =
+      error?.message != null && String(error.message).trim() !== ''
+        ? String(error.message).slice(0, 200)
+        : error != null && typeof error !== 'object'
+          ? String(error).slice(0, 200)
+          : null
     await kv.put(
       BURN_META_KEY,
       JSON.stringify({
@@ -224,6 +236,7 @@ async function recordBurnMetaError(kv, lastBlock, reason) {
         last_run_ts: Math.floor(Date.now() / 1000),
         status: 'error',
         reason,
+        ...(detail ? { error: detail } : {}),
       }),
     )
   } catch {
@@ -261,7 +274,7 @@ export async function runBurnCollector(env, options = {}) {
     head = await chain.headBlock()
   } catch (error) {
     console.error('burn collector: head block unreadable:', error?.message ?? error)
-    await recordBurnMetaError(kv, meta.lastBlock, 'head-unreadable')
+    await recordBurnMetaError(kv, meta.lastBlock, 'head-unreadable', error)
     return { ok: false, reason: 'head-unreadable' }
   }
   const fromBlock = await (async () => {
@@ -285,7 +298,9 @@ export async function runBurnCollector(env, options = {}) {
 
   // Log scan, packed for both caps: the provider's 10-block eth_getLogs
   // limit (BURN_LOG_CHUNK_BLOCKS) and the worker's 50-subrequest free-tier
-  // budget (one subrequest per BURN_LOG_BATCH_CALLS calls via logsBatched).
+  // budget PER INVOCATION (one subrequest per BURN_LOG_BATCH_CALLS calls via
+  // logsBatched — shared with the market snapshot's fetches in the same
+  // tick, so the scan must stay small enough for both to fit).
   // A single call over the whole run range is rejected by the provider;
   // one call per chunk trips the worker's subrequest limit instead.
   // Batches are paced (BURN_BATCH_PACING_MS): bursty batches 429 the
@@ -303,7 +318,7 @@ export async function runBurnCollector(env, options = {}) {
     })
   } catch (error) {
     console.error('burn collector: log scan failed:', error?.message ?? error)
-    await recordBurnMetaError(kv, meta.lastBlock, 'scan-failed')
+    await recordBurnMetaError(kv, meta.lastBlock, 'scan-failed', error)
     return { ok: false, reason: 'scan-failed' }
   }
   if (Date.now() > deadline) {
@@ -323,7 +338,7 @@ export async function runBurnCollector(env, options = {}) {
     stored = await kv.get(BURNS_KEY, 'json')
   } catch (error) {
     console.error('burn collector: series read failed:', error?.message ?? error)
-    await recordBurnMetaError(kv, meta.lastBlock, 'series-unreadable')
+    await recordBurnMetaError(kv, meta.lastBlock, 'series-unreadable', error)
     return { ok: false, reason: 'series-unreadable' }
   }
 
@@ -334,7 +349,7 @@ export async function runBurnCollector(env, options = {}) {
       tsByBlock = await chain.blockTimestamps(drips.map((d) => d.blockNumber))
     } catch (error) {
       console.error('burn collector: block timestamps unreadable:', error?.message ?? error)
-      await recordBurnMetaError(kv, meta.lastBlock, 'timestamps-unreadable')
+      await recordBurnMetaError(kv, meta.lastBlock, 'timestamps-unreadable', error)
       return { ok: false, reason: 'timestamps-unreadable' }
     }
     const freshByDate = aggregateDripsDetail(drips, tsByBlock)
