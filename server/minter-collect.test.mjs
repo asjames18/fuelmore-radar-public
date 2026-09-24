@@ -20,6 +20,7 @@ import {
   dayKey,
   contentSignature,
   selectChangedEntries,
+  createChainReader,
   FUEL_TOKEN,
   FUEL_WETH_POOL,
   BATCH_MINTER,
@@ -644,5 +645,23 @@ describe('write bounding (KV quota)', () => {
       ['flows:daily:2026-09-21', { date: '2026-09-21', buyers: [], sellers: [], buy_vol_usd: 0, sell_vol_usd: 0, usd_missing: 0, n_buys: 0, n_sells: 0, last_block: '2000' }],
     ]
     assert.deepEqual(selectChangedEntries(entries, prior), [])
+  })
+})
+
+describe('chain reader RPC error diagnosability', () => {
+  it('includes the provider response body in non-OK HTTP errors', async () => {
+    const failFetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () => 'eth_getLogs block range exceeds the provider limit of 10000',
+    })
+    const chain = createChainReader({ fetchImpl: failFetch })
+    await assert.rejects(() => chain.headBlock(), /RPC HTTP 400: eth_getLogs block range exceeds the provider limit/)
+  })
+
+  it('still reports the bare status when the body is unreadable', async () => {
+    const failFetch = async () => ({ ok: false, status: 400 })
+    const chain = createChainReader({ fetchImpl: failFetch })
+    await assert.rejects(() => chain.headBlock(), /^RPC HTTP 400$/)
   })
 })

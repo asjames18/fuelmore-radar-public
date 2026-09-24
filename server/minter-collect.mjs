@@ -256,6 +256,23 @@ function rpcPayload(id, method, params) {
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504])
 const RPC_MAX_ATTEMPTS = 8
 
+async function rpcHttpError(res) {
+  // Include a capped snippet of the response body: providers often explain a
+  // 400/413 (range limits, method restrictions, IP-based gating) in the
+  // body, and without it the failure is undebuggable from worker logs.
+  // Capped so a huge HTML error page can't flood the logs. This also lets
+  // isLogLimitError() see provider-described limits ("exceeds block range
+  // limit") so getLogsRange() can halve-and-retry them.
+  let detail = ''
+  try {
+    const text = typeof res.text === 'function' ? await res.text() : ''
+    if (text) detail = `: ${String(text).slice(0, 300).replace(/\s+/g, ' ').trim()}`
+  } catch {
+    // Body unreadable — the status code alone is the signal.
+  }
+  return new Error(`RPC HTTP ${res.status}${detail}`)
+}
+
 async function rpcFetch(fetchImpl, url, payload, { timeoutMs = 30000 } = {}) {
   let lastError = null
   for (let attempt = 1; attempt <= RPC_MAX_ATTEMPTS; attempt++) {
@@ -269,7 +286,7 @@ async function rpcFetch(fetchImpl, url, payload, { timeoutMs = 30000 } = {}) {
         signal: controller.signal,
       })
       if (res.ok) return await res.json()
-      lastError = new Error(`RPC HTTP ${res.status}`)
+      lastError = await rpcHttpError(res)
       if (!RETRYABLE_STATUS.has(res.status)) throw lastError
       // Honor the node's Retry-After hint when present.
       const retryAfter = Number(res.headers?.get?.('retry-after'))
