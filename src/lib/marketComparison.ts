@@ -31,9 +31,14 @@ export function marketComparison(history: HistoryPoint[], range: ChartRange) {
   }
   // Both tokens start at the SAME observation. A zero/missing baseline is unusable.
   const base = windowed.find(p=>p.fuelPrice !== null && p.fuelPrice>0 && p.morePrice !== null && p.morePrice>0)
+  // windowed is chronological and null break points are only ever inserted
+  // between two real observations, so the first element is the earliest real
+  // observation in the selected window — the chart uses it to name its
+  // coverage when a fixed range outruns the collector's history.
+  const earliestAt = windowed.length ? windowed[0].at : null
   return { base, points: windowed.map(p=>({
     ...p,
     fuelChange: base && p.at>=base.at && p.fuelPrice!==null ? (p.fuelPrice/base.fuelPrice!-1)*100 : null,
     moreChange: base && p.at>=base.at && p.morePrice!==null ? (p.morePrice/base.morePrice!-1)*100 : null,
-  })) }
+  })), earliestAt }
 }

@@ -74,3 +74,20 @@ it('attributes the strip to the worker quotes when they drive it, not the merged
   expect(note.textContent).toContain('MORE no worker quote yet')
   expect(note.textContent).not.toContain('recorded in this browser')
 })
+it('names collector coverage when a fixed range outruns the available history',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  const day = 86_400_000
+  // Two days of history: 7D and 30D honestly show everything, but the note
+  // says why they do not show 7 or 30 days.
+  const twoDays=[0,day,2*day].map((at,i)=>({at,fuelPrice:0.01+i*0.002,morePrice:0.00003,fuelLiquidity:1000,moreLiquidity:100}))
+  render(<MarketChart history={twoDays}/>)
+  fireEvent.click(screen.getByRole('button',{name:'Compare USD'}))
+  fireEvent.click(screen.getByRole('button',{name:'7D'}))
+  const note = screen.getByText(/Collector history starts/)
+  expect(note.textContent).toContain('the 7D view fills in as observations accumulate')
+  // A covered range gets no note, and ALL needs none — it shows everything.
+  fireEvent.click(screen.getByRole('button',{name:'1D'}))
+  expect(screen.queryByText(/Collector history starts/)).toBeNull()
+  fireEvent.click(screen.getByRole('button',{name:'ALL'}))
+  expect(screen.queryByText(/Collector history starts/)).toBeNull()
+})

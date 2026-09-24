@@ -36,7 +36,7 @@ export function MarketChart({ history, quotes }: {
   const [metric, setMetric] = useState<Metric>('price')
   const [view, setView] = useState<View>('candles')
   const [range, setRange] = useState<ChartRange>('ALL')
-  const {points, base} = useMemo(()=>marketComparison(history,range),[history,range])
+  const {points, base, earliestAt} = useMemo(()=>marketComparison(history,range),[history,range])
   const isPrice = metric === 'price'
   const candles = isPrice && view==='candles'
   const normalized = isPrice && view==='percent'
@@ -70,6 +70,16 @@ export function MarketChart({ history, quotes }: {
     track('chart_rendered')
   }, [])
   const description = candles ? 'USD candles · market history' : normalized ? 'Price change (%) · shared starting observation · UTC' : isPrice ? (dual?'Actual price · USD · FUEL left · MORE right · independent scales':'Actual price · USD · UTC') : 'Pool liquidity · USD · UTC'
+  // A fixed range can outrun the collector's history: the chart renders
+  // everything it has, but a 7D button showing 2 days without a word reads
+  // as broken or stale. Name the coverage instead of letting it look like a
+  // gap. ALL needs no note — it honestly shows everything available.
+  const rangeDays = range === 'ALL' ? Infinity : Number.parseInt(range)
+  const lastAt = points.length ? points[points.length - 1].at : null
+  const spanDays = earliestAt != null && lastAt != null ? (lastAt - earliestAt) / 86_400_000 : 0
+  const coverageNote = enough && rangeDays !== Infinity && earliestAt != null && spanDays < rangeDays - 1/24
+    ? ` Collector history starts ${utcTick(earliestAt)} UTC — the ${range} view fills in as observations accumulate.`
+    : ''
   return <section className="panel chart-panel comparison-chart" aria-labelledby="market-chart-title">
     <div className="panel-heading chart-heading">
       <div><h2 id="market-chart-title">FUEL / MORE comparison</h2><p>{description}</p></div>
@@ -116,7 +126,7 @@ export function MarketChart({ history, quotes }: {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="chart-note">Market observations · the radar's collector records a point every 15 minutes (Dexscreener → GeckoTerminal → DexPaprika failover, stale quotes rejected); this browser adds fresher points between syncs. Drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}{latestAttribution}</p>
+      <p className="chart-note">Market observations · the radar's collector records a point every 15 minutes (Dexscreener → GeckoTerminal → DexPaprika failover, stale quotes rejected); this browser adds fresher points between syncs. Drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}{latestAttribution}{coverageNote}</p>
     </>}
   </section>
 }

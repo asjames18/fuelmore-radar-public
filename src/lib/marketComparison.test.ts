@@ -52,3 +52,13 @@ it('breaks multiple gaps independently',()=>{
  expect(result.points[3].fuelPrice).toBeNull()
  expect(result.points.map(p=>p.at)).toEqual([0,gap/2,gap,gap+gap/2,gap*2])
 })
+it('reports the earliest observation of the selected window',()=>{
+ const day=86_400_000
+ const input=[point(0,0.01,0.00001),point(day,0.02,0.00002),point(2*day,0.03,0.00003)]
+ // 7D keeps all three days; earliest is the first real observation, not a null break point.
+ expect(marketComparison(input,'7D').earliestAt).toBe(0)
+ // 1D keeps only the last 24h of the window.
+ expect(marketComparison(input,'1D').earliestAt).toBe(day)
+ expect(marketComparison(input,'ALL').earliestAt).toBe(0)
+ expect(marketComparison([],'ALL').earliestAt).toBeNull()
+})
