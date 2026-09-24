@@ -749,3 +749,112 @@ describe('chain reader RPC error diagnosability', () => {
     assert.ok(Date.now() - t1 < 100, 'unpaced scan unexpectedly slow')
   })
 })
+
+describe('chain reader RPC failover', () => {
+  it('tries each URL in order and uses the first that works', async () => {
+    const seen = []
+    const fetchImpl = async (url, { body }) => {
+      seen.push(url)
+      const payload = JSON.parse(body)
+      if (url === 'https://primary.test/rpc') {
+        return { ok: false, status: 429, text: async () => 'rate limited' }
+      }
+      assert.equal(url, 'https://fallback.test/rpc')
+      return { ok: true, json: async () => ({ jsonrpc: '2.0', id: payload.id, result: '0x10' }) }
+    }
+    const chain = createChainReader({
+      fetchImpl,
+      rpcUrl: 'https://primary.test/rpc',
+      rpcUrls: ['https://primary.test/rpc', 'https://fallback.test/rpc'],
+    })
+    assert.equal(await chain.headBlock(), 16n)
+    assert.deepEqual(seen, ['https://primary.test/rpc', 'https://fallback.test/rpc'])
+  })
+
+  it('throws when every URL fails', async () => {
+    const fetchImpl = async () => ({ ok: false, status: 503, text: async () => 'down' })
+    const chain = createChainReader({
+      fetchImpl,
+      rpcUrls: ['https://a.test/rpc', 'https://b.test/rpc'],
+    })
+    await assert.rejects(() => chain.headBlock(), /RPC HTTP 503/)
+  })
+
+  it('fetches transaction receipts by hash', async () => {
+    const receipt = { transactionHash: '0xabc', logs: [{ address: '0x1' }] }
+    const fetchImpl = async (_url, { body }) => {
+      const items = JSON.parse(body)
+      return {
+        ok: true,
+        json: async () => items.map((item) => ({ jsonrpc: '2.0', id: item.id, result: receipt })),
+      }
+    }
+    const chain = createChainReader({ fetchImpl })
+    const map = await chain.receipts(['0xabc', '0xabc'])
+    assert.equal(map.size, 1)
+    assert.deepEqual(map.get('0xabc'), receipt)
+  })
+})
+
+describe('chain reader JSON-RPC failover', () => {
+  it('fails over when the primary returns a throttling JSON-RPC error', async () => {
+    const seen = []
+    const fetchImpl = async (url, { body }) => {
+      seen.push(url)
+      const payload = JSON.parse(body)
+      if (url === 'https://primary.test/rpc') {
+        return {
+          ok: true,
+          json: async () => ({ jsonrpc: '2.0', id: payload.id, error: { code: -32005, message: 'limit exceeded' } }),
+        }
+      }
+      return { ok: true, json: async () => ({ jsonrpc: '2.0', id: payload.id, result: '0x10' }) }
+    }
+    const chain = createChainReader({
+      fetchImpl,
+      rpcUrls: ['https://primary.test/rpc', 'https://fallback.test/rpc'],
+    })
+    assert.equal(await chain.headBlock(), 16n)
+    assert.deepEqual(seen, ['https://primary.test/rpc', 'https://fallback.test/rpc'])
+  })
+
+  it('does not fail over on method-level JSON-RPC errors', async () => {
+    const seen = []
+    const fetchImpl = async (url, { body }) => {
+      seen.push(url)
+      const payload = JSON.parse(body)
+      return {
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: payload.id, error: { code: -32602, message: 'invalid params' } }),
+      }
+    }
+    const chain = createChainReader({
+      fetchImpl,
+      rpcUrls: ['https://primary.test/rpc', 'https://fallback.test/rpc'],
+    })
+    await assert.rejects(() => chain.headBlock(), /RPC -32602: invalid params/)
+    assert.deepEqual(seen, ['https://primary.test/rpc'])
+  })
+
+  it('never logs provider keys embedded in the URL path', async () => {
+    const errors = []
+    const original = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      const fetchImpl = async () => ({ ok: false, status: 500, text: async () => 'down' })
+      const chain = createChainReader({
+        fetchImpl,
+        rpcUrls: ['https://provider.test/v2/SECRETKEY123', 'https://fb.test/rpc'],
+      })
+      await assert.rejects(() => chain.headBlock(), /RPC HTTP 500/)
+    } finally {
+      console.error = original
+    }
+    assert.ok(errors.length > 0, 'expected transport failure logs')
+    assert.ok(errors.some((line) => line.includes('provider.test')), 'expected the primary host in logs')
+    for (const line of errors) {
+      assert.ok(!line.includes('SECRETKEY123'), `key leaked into logs: ${line}`)
+      assert.ok(!line.includes('/v2/'), `URL path leaked into logs: ${line}`)
+    }
+  })
+})

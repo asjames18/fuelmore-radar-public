@@ -273,9 +273,9 @@ async function rpcHttpError(res) {
   return new Error(`RPC HTTP ${res.status}${detail}`)
 }
 
-async function rpcFetch(fetchImpl, url, payload, { timeoutMs = 30000 } = {}) {
+async function rpcFetch(fetchImpl, url, payload, { timeoutMs = 30000, maxAttempts = RPC_MAX_ATTEMPTS } = {}) {
   let lastError = null
-  for (let attempt = 1; attempt <= RPC_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
@@ -302,7 +302,7 @@ async function rpcFetch(fetchImpl, url, payload, { timeoutMs = 30000 } = {}) {
     } finally {
       clearTimeout(timer)
     }
-    if (attempt < RPC_MAX_ATTEMPTS) {
+    if (attempt < maxAttempts) {
       // 429s from this node can persist for a minute+; back off hard.
       const backoffMs = Math.min(2000 * 2 ** (attempt - 1), 120000) + Math.floor(Math.random() * 1000)
       await new Promise((r) => setTimeout(r, backoffMs))
@@ -340,8 +340,59 @@ function isLogLimitError(error) {
   return /limit|too many|response size|block range|free tier/i.test(error?.message ?? '')
 }
 
-export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, concurrency = RPC_CONCURRENCY } = {}) {
+export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, rpcUrls = null, concurrency = RPC_CONCURRENCY } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('chain reader requires a fetch implementation')
+  // Transport failover: try each URL in order, moving to the next when the
+  // current one fails at the transport level (network error, HTTP 429/5xx,
+  // timeout). Per-item JSON-RPC errors still throw — those are method-level,
+  // not provider-level. rpcUrls defaults to the single rpcUrl for callers
+  // that don't need failover (e.g. the minter collector).
+  const urls = Array.isArray(rpcUrls) && rpcUrls.length > 0 ? [...new Set(rpcUrls)] : [rpcUrl]
+
+  async function fetchRpc(payload) {
+    let lastError = null
+    // With several endpoints configured the URL loop itself is the retry:
+    // one quick attempt per URL keeps a dead primary from eating the whole
+    // run deadline in backoff. Single-URL callers keep the full retry cycle.
+    const attempts = urls.length > 1 ? 1 : RPC_MAX_ATTEMPTS
+    for (const url of urls) {
+      try {
+        const replies = await rpcFetch(fetchImpl, url, payload, { maxAttempts: attempts })
+        const list = Array.isArray(replies) ? replies : [replies]
+        const throttled = list.map(transportRpcError).find(Boolean)
+        if (throttled) throw new Error(`RPC ${throttled.code}: ${throttled.message}`)
+        return replies
+      } catch (error) {
+        lastError = error
+        console.error(`chain reader: transport failed on ${redactUrl(url)}: ${error?.message ?? error}; trying next`)
+      }
+    }
+    throw lastError ?? new Error('all RPC endpoints failed')
+  }
+
+  // Host-only: provider keys are commonly embedded in the URL path, so the
+  // path, query, and credentials must never reach logs.
+  function redactUrl(url) {
+    try {
+      return new URL(String(url)).host
+    } catch {
+      return 'invalid-url'
+    }
+  }
+
+  // Provider-level JSON-RPC errors (throttling / overload) are transport
+  // failures: fail over to the next URL instead of surfacing a method error.
+  // Method-level errors (bad params, unknown method, log-range caps) return
+  // null here so halving and other method logic still applies.
+  function transportRpcError(reply) {
+    const err = reply && typeof reply === 'object' ? reply.error : null
+    if (!err || typeof err !== 'object') return null
+    const code = err.code
+    const message = String(err.message ?? '')
+    if (code === -32005 || code === -32016) return err
+    if (/rate.?limit|too many requests|limit exceeded|overloaded|server (is )?busy|temporarily|try again|timeout/i.test(message)) return err
+    return null
+  }
 
   async function batch(calls) {
     // calls: [[method, params], ...] -> results in order; throws on any item error
@@ -350,7 +401,7 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
     for (let i = 0; i < calls.length; i += RPC_BATCH_SIZE) chunks.push([i, calls.slice(i, i + RPC_BATCH_SIZE)])
     await mapConcurrent(chunks, concurrency, async ([offset, chunk]) => {
       const payload = chunk.map(([method, params], j) => rpcPayload(offset + j, method, params))
-      const replies = await rpcFetch(fetchImpl, rpcUrl, payload)
+      const replies = await fetchRpc(payload)
       const list = Array.isArray(replies) ? replies : [replies]
       if (list.length !== chunk.length) throw new Error('RPC batch shape mismatch')
       for (const reply of list) {
@@ -362,7 +413,7 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
   }
 
   async function single(method, params) {
-    const reply = await rpcFetch(fetchImpl, rpcUrl, rpcPayload(1, method, params))
+    const reply = await fetchRpc(rpcPayload(1, method, params))
     return assertNoRpcError(reply)
   }
 
@@ -451,6 +502,19 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
         if (!tx) throw new Error(`transaction ${uniq[i]} unavailable`)
         map.set(uniq[i], { from: (tx.from || '').toLowerCase(), valueWei: BigInt(tx.value || '0x0') })
       }
+      return map
+    },
+    /**
+     * txHash[] -> Map<hash, receipt|null>. A null receipt (tx not yet
+     * indexed) does not throw: callers decide whether to skip or retry.
+     * Used by the burns collector to pull BuyAndBurn events out of the
+     * receipts of transfer-discovered drip transactions.
+     */
+    async receipts(hashes) {
+      const uniq = [...new Set(hashes)]
+      const results = await batch(uniq.map((h) => ['eth_getTransactionReceipt', [h]]))
+      const map = new Map()
+      for (let i = 0; i < uniq.length; i++) map.set(uniq[i], results[i] ?? null)
       return map
     },
     /** address[] -> Map<address, 'eoa'|'contract'> */

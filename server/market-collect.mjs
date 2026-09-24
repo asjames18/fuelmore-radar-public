@@ -262,8 +262,15 @@ export async function runMarketSnapshot(env, options = {}) {
       } catch {
         // Corrupted diagnostic state starts fresh; the run record itself is fine.
       }
-      runs = [...runs, entry].slice(-24)
-      await kv.put('market-snapshot-last-run', JSON.stringify({ runs }))
+      // Write-bounded: at */5 this tick fires 288x/day against the 1,000
+      // KV writes/day free cap. The ring buffer's job is to show recent
+      // state changes, so record a run only when its outcome differs from
+      // the last recorded one — a steady "ok" streak adds no information.
+      const last = runs.at(-1)
+      if (!last || last.ok !== entry.ok || (last.reason ?? null) !== (entry.reason ?? null)) {
+        runs = [...runs, entry].slice(-24)
+        await kv.put('market-snapshot-last-run', JSON.stringify({ runs }))
+      }
     }
   } catch {
     // Diagnostics are best-effort; the snapshot result stands.

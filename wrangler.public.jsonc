@@ -13,11 +13,15 @@
     "enabled": true
   },
   "triggers": {
-    // The watchdog + market snapshot cron. Keep this in config: deploys sync
+    // The watchdog + market snapshot + burns collector cron. Keep this in config: deploys sync
     // triggers from here, and an empty list silently deletes the trigger —
     // which caused the 2026-09-22 watchdog dispatch gap (trigger only
     // re-attached manually at 13:25 UTC, after the outage window).
-    "crons": ["*/15 * * * *"]
+    // */5: prices/liquidity refresh every 5 minutes via the cheap REST
+    // sources; burns ride the indexed transfers API (~1 call/tick). KV
+    // writes are bounded below ~320/day (meta watermark every tick +
+    // write-on-change diagnostics), well under the 1,000/day free cap.
+    "crons": ["*/5 * * * *"]
   },
   "kv_namespaces": [
     {

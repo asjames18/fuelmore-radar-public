@@ -71,3 +71,25 @@ it('classifies collector failures without copying provider messages or URLs',asy
  assert.deepEqual(collectorDiagnostic({cause:{code:-32602,data:'secret'}}),{category:'rpc',rpcCode:-32602})
  assert.deepEqual(collectorDiagnostic(new Error('secret')),{category:'unknown'})
 })
+
+it('resolveRpcUrls orders managed -> fallbacks -> public RPC, deduplicated', async () => {
+  const { resolveRpcUrls } = await import('./rpc-config.mjs')
+  const PUBLIC = 'https://rpc.mainnet.chain.robinhood.com'
+  assert.deepEqual(resolveRpcUrls({}), [PUBLIC])
+  assert.deepEqual(resolveRpcUrls({ RPC_URL: 'https://provider.test/v2/secret' }), [
+    'https://provider.test/v2/secret',
+    PUBLIC,
+  ])
+  assert.deepEqual(
+    resolveRpcUrls({
+      RPC_URL: 'https://provider.test/v2/secret',
+      RPC_URL_FALLBACKS: 'https://fb1.test/x, https://fb2.test/y,https://fb1.test/x',
+    }),
+    ['https://provider.test/v2/secret', 'https://fb1.test/x', 'https://fb2.test/y', PUBLIC],
+  )
+  // Duplicates of the public RPC collapse; blanks are skipped.
+  assert.deepEqual(resolveRpcUrls({ RPC_URL_FALLBACKS: ` ${PUBLIC} , ` }), [PUBLIC])
+  for (const value of ['http://insecure.test/', 'https://user:secret@provider.test']) {
+    assert.throws(() => resolveRpcUrls({ RPC_URL_FALLBACKS: value }), /Invalid backend RPC configuration/)
+  }
+})

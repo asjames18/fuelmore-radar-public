@@ -14,6 +14,35 @@ export function resolveRpcUrl(env) {
 export const collectorFailureMessage = () => 'Activity collection failed; check provider configuration or retry'
 
 /**
+ * Ordered, deduplicated RPC endpoint list for collectors that need raw RPC.
+ * Order: managed primary (RPC_URL) -> operator-configured fallbacks
+ * (RPC_URL_FALLBACKS, comma-separated https URLs — where future keyed
+ * endpoints like Chainstack/dRPC go; Antonio creates those accounts himself)
+ * -> official public RPC as the last resort. Collectors try each in order
+ * and move on when one fails at the transport level.
+ */
+export function resolveRpcUrls(env) {
+  const urls = []
+  const push = (value) => {
+    if (value === undefined || value === null) return
+    const trimmed = String(value).trim()
+    if (trimmed === '') return
+    try {
+      const url = new URL(trimmed)
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error()
+      if (!urls.includes(trimmed)) urls.push(trimmed)
+    } catch {
+      throw new Error('Invalid backend RPC configuration')
+    }
+  }
+  push(env.RPC_URL)
+  const fallbacks = env.RPC_URL_FALLBACKS
+  if (typeof fallbacks === 'string') for (const part of fallbacks.split(',')) push(part)
+  push(PUBLIC_RPC)
+  return urls
+}
+
+/**
  * The burns collector reads through the MANAGED endpoint (RPC_URL), like
  * every other collector. The public-RPC experiment (2026-09-24, commit
  * 9f456a5) proved out for the sandbox backfill — the sandbox scanned 1.7M

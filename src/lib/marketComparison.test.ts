@@ -40,7 +40,7 @@ it('breaks the series across collection gaps instead of bridging missing observa
  expect(result.base?.at).toBe(0)
 })
 it('does not break the series for one or two missed collection slots',()=>{
- const twoMisses = 45*60*1000
+ const twoMisses = 10*60*1000
  const result=marketComparison([point(0,0.01,0.00001),point(twoMisses,0.02,0.000005)],'ALL')
  expect(result.points).toHaveLength(2)
 })

@@ -1098,8 +1098,8 @@ describe('market snapshot run diagnostics', () => {
         runs: Array.from({ length: 24 }, (_, i) => ({
           msg: 'market-snapshot-run',
           at: `seed-${i}`,
-          ok: true,
-          reason: null,
+          ok: i < 23,
+          reason: i < 23 ? null : 'fetch-failed',
           pointT: null,
           attempts: [],
         })),
@@ -1120,6 +1120,42 @@ describe('market snapshot run diagnostics', () => {
           ['more', 'dexscreener', true],
         ],
       )
+    } finally {
+      console.restore()
+    }
+  })
+
+  it('does not rewrite the run record on a steady-ok streak (KV write bounding)', async () => {
+    const console = captureConsole()
+    const { sleep } = sleepStub()
+    const store = {}
+    let puts = 0
+    const kv = {
+      get: async (k) => store[k] ?? null,
+      put: async (k, v) => {
+        // The D1 store mirrors market-history-v2 to KV on every snapshot;
+        // this test only bounds the diagnostic run-record writes.
+        if (k === 'market-snapshot-last-run') puts++
+        store[k] = v
+      },
+    }
+    const db = makeDb()
+    const env = { DB: db, ACTIVITY: kv }
+    try {
+      mock.method(globalThis, 'fetch', async (url) => {
+        const key = String(url)
+        if (!key.includes('dexscreener')) return ok({}, 404)()
+        if (key.includes(FUEL_PAIR)) return ok(fuelPayload())()
+        if (key.includes(MORE_PAIR)) return ok(morePayload())()
+        return ok({}, 404)()
+      })
+      store['market-snapshot-last-run'] = JSON.stringify({
+        runs: [{ msg: 'market-snapshot-run', at: 'seed', ok: true, reason: null, pointT: null, attempts: [] }],
+      })
+      puts = 0
+      const result = await runMarketSnapshot(env, { sleep })
+      assert.equal(result.ok, true)
+      assert.equal(puts, 0)
     } finally {
       console.restore()
     }

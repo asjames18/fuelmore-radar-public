@@ -1,14 +1,14 @@
 import type { HistoryPoint } from './types'
 export type ChartRange = '1D' | '7D' | '30D' | 'ALL'
 /**
- * The market collector runs on a 15-minute cadence. When two consecutive
- * observations are farther apart than this, the collector went quiet for at
- * least three slots — insert a null break point between them so the chart
- * drops the line instead of drawing a straight segment across missing
+ * The market collector runs on a 5-minute cadence. When two consecutive
+ * observations are farther apart than three slots, the collector went quiet
+ * for a stretch — insert a null break point between them so the chart drops
+ * the line instead of drawing a straight segment across missing
  * observations. A straight line across a gap would imply the radar knows
  * what happened in between; a visible break is honest about not knowing.
  */
-export const MAX_POINT_GAP_MS = 45 * 60 * 1000
+export const MAX_POINT_GAP_MS = 15 * 60 * 1000
 const nullPoint = (at: number): HistoryPoint => ({
   at,
   fuelPrice: null,

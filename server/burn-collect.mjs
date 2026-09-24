@@ -1,13 +1,13 @@
 // FUEL buy-and-burn history collector for the FUEL/MORE Radar (FUEL only).
 //
-// Hourly worker cron: reads BuyAndBurn events from the FUEL Buy & Burn
+// Worker cron (every 5 minutes): reads BuyAndBurn events from the FUEL Buy & Burn
 // contract and maintains:
 //   burns:daily            daily series [{date, fuel, eth, drips}]
 //   meta:burn-collector    watermark {last_block, last_run_ts, status}
 //
 // Conventions follow server/minter-collect.mjs: all-or-nothing per run,
 // injectable chain reader for tests, null-never-zero, read-only RPC,
-// write-bounded (quiet hours write ~1 key: the meta watermark; the daily
+// write-bounded (a quiet tick writes ~1 key: the meta watermark; the daily
 // series is PUT only when new drips landed).
 //
 // Verified on-chain 2026-09-22 (do NOT replace with textbook values):
@@ -21,8 +21,8 @@
 //   here (its "burns" go to the dead address — supply-neutral).
 // - First drip observed at block ~63,120,000 (2026-09-14 22:12 UTC).
 
-import { createChainReader, toMinHex, hexToBigInt } from './minter-collect.mjs'
-import { resolveBurnRpcUrl, resolveBurnLogRange } from './rpc-config.mjs'
+import { createChainReader, toMinHex, hexToBigInt, FUEL_TOKEN, ZERO_ADDRESS } from './minter-collect.mjs'
+import { resolveBurnRpcUrl, resolveBurnLogRange, resolveRpcUrls } from './rpc-config.mjs'
 
 export const FUEL_BURNER = '0x1f8e137117f78EF1EA84235F3E5423c46bF2D4A2'
 // keccak256("BuyAndBurn(uint256,uint256,address)")
@@ -32,15 +32,22 @@ export const BUY_AND_BURN_TOPIC =
 export const BURNS_KEY = 'burns:daily'
 export const BURN_META_KEY = 'meta:burn-collector'
 
+/** Official Blockscout explorer REST v2 (indexed logs; free, keyless). */
+export const BLOCKSCOUT_API = 'https://robinhoodchain.blockscout.com/api/v2'
+/** alchemy_getAssetTransfers page size (hex). Drips average ~17/day. */
+export const TRANSFERS_MAX_COUNT = '0x3e8'
+
 export const BURN_FIRST_BLOCK = 63115000n
-// Per-run block budget: 16,000 blocks = 16 batches x 100 calls x 10 blocks.
+// Per-run block budget: 16,000 blocks. The indexed transports (transfers API,
+// Blockscout) have no range cap, but the shared watermark advance and the
+// last-resort log scan both stay inside this budget. At ~96ms/block the chain
+// makes ~3.1k blocks per 5-minute tick, so the watermark converges quickly.
 // Subrequest math (worker free tier: 50 external subrequests PER INVOCATION,
 // shared by the market snapshot and watchdog running in the same tick):
 // 16 log batches + head ~= 17, leaving headroom for the market snapshot's
-// own fetches in the same tick. 16k blocks/tick outpaces the chain's ~14k
-// blocks per 15-minute tick, so the watermark converges over successive runs
+// own fetches in the same tick. 16k blocks/tick outpaces the chain's ~3.1k
+// blocks per 5-minute tick, so the watermark converges over successive runs
 // instead of falling behind.
-// runs instead of falling behind.
 export const BURN_MAX_RUN_BLOCKS = 16000n
 // The collector reads from the MANAGED endpoint (resolveBurnRpcUrl ->
 // resolveRpcUrl), not the public RPC: worker egress to the public RPC is
@@ -243,7 +250,233 @@ async function recordBurnMetaError(kv, lastBlock, reason, error) {
 }
 
 /**
- * Hourly run: fetch new BuyAndBurn events from the watermark to head,
+ * Transport registry for the burns collector. Each transport resolves
+ * { drips, tsByBlock } for [fromBlock, toBlock] or throws; runBurnCollector
+ * tries them in order and the first success wins. Drip identification is
+ * identical in every transport: decodeBurnLog on BuyAndBurn logs.
+ */
+const TRANSPORTS = {
+  transfers: ({ fetchImpl, rpcUrls, chain, fromBlock, toBlock }) =>
+    fetchBurnDripsViaTransfers({ fetchImpl, rpcUrls, chain, fromBlock, toBlock }),
+  blockscout: async ({ fetchImpl, fromBlock, toBlock }) => {
+    const { logs, tsByBlock: ts } = await fetchBurnLogsBlockscout({ fetchImpl, fromBlock, toBlock })
+    const drips = []
+    for (const log of logs) {
+      const drip = decodeBurnLog(log)
+      if (drip) drips.push(drip)
+    }
+    return { drips, tsByBlock: ts }
+  },
+  scan: async ({ chain, fromBlock, toBlock, rangeBlocks }) => {
+    // Last resort: range size comes from resolveBurnLogRange — 10 blocks on
+    // the managed endpoint, so a steady-state tick is a small number of
+    // paced eth_getLogs batches (BURN_LOG_BATCH_CALLS per batch,
+    // BURN_BATCH_PACING_MS apart, BURN_RPC_CONCURRENCY lanes).
+    const logs = await chain.logsBatched({
+      address: FUEL_BURNER,
+      topics: [BUY_AND_BURN_TOPIC],
+      fromBlock,
+      toBlock,
+      rangeBlocks,
+      batchCalls: BURN_LOG_BATCH_CALLS,
+      pacingMs: BURN_BATCH_PACING_MS,
+    })
+    const drips = []
+    for (const log of logs) {
+      const drip = decodeBurnLog(log)
+      if (drip) drips.push(drip)
+    }
+    const ts = drips.length > 0 ? await chain.blockTimestamps(drips.map((d) => d.blockNumber)) : new Map()
+    return { drips, tsByBlock: ts }
+  },
+}
+
+/**
+ * Transport 1 (primary): indexed token transfers.
+ *
+ * alchemy_getAssetTransfers finds FUEL Transfer(burner -> 0x0) events in
+ * [fromBlock, toBlock] (indexed: no range caps, ~1 call per page), then
+ * eth_getTransactionReceipt pulls the BuyAndBurn event out of each drip tx
+ * so drip identification stays EXACTLY the decodeBurnLog path.
+ * Verified on-chain 2026-09-24: every BuyAndBurn drip emits a matching
+ * FUEL Transfer(burner -> 0x0) of the identical fuel amount.
+ *
+ * Returns { drips, tsByBlock }. tsByBlock comes from the transfers
+ * metadata (blockTimestamp), so no eth_getBlockByNumber calls are needed.
+ * A transfer whose tx carries no BuyAndBurn event is skipped with a
+ * warning (never invented as a drip). A malformed transfers response
+ * throws (treated as unsupported) rather than reading as "zero drips".
+ */
+export async function fetchBurnDripsViaTransfers({ fetchImpl, rpcUrls, chain, fromBlock, toBlock }) {
+  const params = {
+    fromBlock: toMinHex(fromBlock),
+    toBlock: toMinHex(toBlock),
+    contractAddresses: [FUEL_TOKEN],
+    fromAddress: FUEL_BURNER,
+    toAddress: ZERO_ADDRESS,
+    category: ['erc20'],
+    withMetadata: true,
+    excludeZeroValue: true,
+    maxCount: TRANSFERS_MAX_COUNT,
+  }
+  const transfers = []
+  let pageKey = null
+  for (;;) {
+    const body = pageKey ? { ...params, pageKey } : params
+    const result = await postTransfersPage({ fetchImpl, rpcUrls, body })
+    if (!result || !Array.isArray(result.transfers)) {
+      throw new Error('transfers transport: malformed response (method likely unsupported)')
+    }
+    for (const t of result.transfers) {
+      if (!t || typeof t.hash !== 'string') continue
+      transfers.push(t)
+    }
+    pageKey = result.pageKey ?? null
+    if (!pageKey) break
+  }
+  const hashes = [...new Set(transfers.map((t) => t.hash))]
+  const receipts = hashes.length > 0 ? await chain.receipts(hashes) : new Map()
+  const drips = []
+  const tsByBlock = new Map()
+  for (const t of transfers) {
+    const blockNumber = hexToBigInt(t.blockNum)
+    const tsSeconds = t?.metadata?.blockTimestamp ? Math.floor(Date.parse(t.metadata.blockTimestamp) / 1000) : null
+    if (tsSeconds != null && Number.isFinite(tsSeconds) && tsSeconds > 0) {
+      tsByBlock.set(blockNumber.toString(), tsSeconds)
+    }
+    const receipt = receipts.get(t.hash)
+    if (!receipt || !Array.isArray(receipt.logs)) {
+      console.error(`burn collector: transfers transport: no receipt for ${t.hash}; skipping`)
+      continue
+    }
+    let matched = false
+    for (const log of receipt.logs) {
+      const drip = decodeBurnLog(log)
+      if (drip) {
+        drips.push(drip)
+        matched = true
+      }
+    }
+    if (!matched) {
+      console.error(`burn collector: transfers transport: tx ${t.hash} has no BuyAndBurn event; not counted`)
+    }
+  }
+  return { drips, tsByBlock }
+}
+
+/**
+ * One alchemy_getAssetTransfers page, trying each RPC URL in order. Throws
+ * an error with rpcCode === -32601 when the endpoint does not support the
+ * method (e.g. RPC_URL overridden to a non-Alchemy node) so the caller
+ * abandons this transport instead of retrying it forever.
+ */
+async function postTransfersPage({ fetchImpl, rpcUrls, body }) {
+  let lastError = null
+  for (const url of rpcUrls) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 30000)
+      try {
+        const res = await fetchImpl(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'alchemy_getAssetTransfers', params: [body] }),
+          signal: controller.signal,
+        })
+        if (!res.ok) {
+          if (res.status === 429 || res.status >= 500) {
+            await new Promise((r) => setTimeout(r, 1500 * attempt))
+            continue
+          }
+          throw new Error(`transfers HTTP ${res.status}`)
+        }
+        const reply = await res.json()
+        if (reply?.error) {
+          const err = new Error(`transfers RPC ${reply.error.code}: ${reply.error.message ?? 'unknown'}`)
+          err.rpcCode = reply.error.code
+          throw err
+        }
+        return reply.result
+      } catch (error) {
+        if (error?.rpcCode === -32601) throw error
+        lastError = error
+        const nonRetryable = error?.name === 'AbortError' || /transfers HTTP (?!429|5\d\d)/.test(error?.message ?? '')
+        if (nonRetryable) break
+        await new Promise((r) => setTimeout(r, 1500 * attempt))
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+  }
+  throw lastError ?? new Error('transfers transport: all RPC endpoints failed')
+}
+
+/**
+ * Transport 2: Blockscout's indexed address-logs endpoint (official
+ * explorer, free, keyless), filtered to the BuyAndBurn topic. Pages are
+ * newest-first; iteration stops once items fall below fromBlock. Logs are
+ * mapped into the shape decodeBurnLog expects, and tsByBlock comes from
+ * the explorer's per-log timestamps.
+ *
+ * Throws on any failure (the explorer Cloudflare-challenges automated IPs:
+ * observed HTTP 403 2026-09-24) so the caller falls through to the next
+ * transport. Unparseable items are skipped, never counted.
+ */
+export async function fetchBurnLogsBlockscout({ fetchImpl = fetch, fromBlock, toBlock }) {
+  const from = BigInt(fromBlock)
+  const to = BigInt(toBlock)
+  const logs = []
+  const tsByBlock = new Map()
+  let page = null
+  for (;;) {
+    const url =
+      `${BLOCKSCOUT_API}/addresses/${FUEL_BURNER}/logs?topic0=${BUY_AND_BURN_TOPIC}` +
+      (page ? `&block_number=${page.block_number}&index=${page.index}&items_count=${page.items_count}` : '')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000)
+    let res
+    try {
+      res = await fetchImpl(url, { headers: { Accept: 'application/json' }, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!res.ok) throw new Error(`blockscout HTTP ${res.status}`)
+    const body = await res.json()
+    const items = Array.isArray(body?.items) ? body.items : []
+    if (items.length === 0) break
+    let minBlock = null
+    for (const item of items) {
+      let blockNumber
+      try {
+        blockNumber = BigInt(item?.block_number ?? -1)
+      } catch {
+        continue
+      }
+      if (blockNumber < 0n) continue
+      if (minBlock == null || blockNumber < minBlock) minBlock = blockNumber
+      if (blockNumber < from || blockNumber > to) continue
+      const topics = Array.isArray(item?.topics) ? item.topics.map((t) => String(t)) : []
+      const tsSeconds = item?.timestamp ? Math.floor(Date.parse(item.timestamp) / 1000) : null
+      if (tsSeconds != null && Number.isFinite(tsSeconds) && tsSeconds > 0) {
+        tsByBlock.set(blockNumber.toString(), tsSeconds)
+      }
+      logs.push({
+        address: FUEL_BURNER,
+        topics,
+        blockNumber: toMinHex(blockNumber),
+        logIndex: toMinHex(BigInt(item?.index ?? 0)),
+        transactionHash: String(item?.transaction_hash ?? ''),
+      })
+    }
+    const next = body?.next_page_params
+    if (!next || minBlock == null || minBlock < from) break
+    page = next
+  }
+  return { logs, tsByBlock }
+}
+
+/**
+ * Cron run: fetch new BuyAndBurn events from the watermark to head,
  * merge into the daily series, write KV. All-or-nothing: the watermark
  * advances only after the series write succeeds.
  *
@@ -258,8 +491,11 @@ export async function runBurnCollector(env, options = {}) {
   const kv = env.ACTIVITY
   const fetchImpl = options.fetchImpl ?? fetch
   const rpcUrl = options.rpcUrl ?? resolveBurnRpcUrl(env)
+  const rpcUrls = options.rpcUrls ?? (options.rpcUrl ? [options.rpcUrl] : resolveRpcUrls(env))
   const rangeBlocks = options.rangeBlocks ?? resolveBurnLogRange(env)
-  const chain = options.chain ?? createChainReader({ fetchImpl, rpcUrl, concurrency: BURN_RPC_CONCURRENCY })
+  const chain =
+    options.chain ??
+    createChainReader({ fetchImpl, rpcUrl, rpcUrls, concurrency: BURN_RPC_CONCURRENCY })
   const deadline = options.deadline ?? Date.now() + BURN_RUN_DEADLINE_MS
 
   let meta
@@ -295,38 +531,38 @@ export async function runBurnCollector(env, options = {}) {
   }
   const runTo = head - fromBlock > BURN_MAX_RUN_BLOCKS ? fromBlock + BURN_MAX_RUN_BLOCKS : head
 
-  // Log scan: range size comes from resolveBurnLogRange — 10 blocks on the
-  // managed endpoint, so a steady-state tick is a small number of paced
-  // eth_getLogs batches (one call per 10 blocks, BURN_LOG_BATCH_CALLS per
-  // batch, BURN_BATCH_PACING_MS apart, BURN_RPC_CONCURRENCY lanes). If the
-  // scan fails, the all-or-nothing error record below holds the watermark
-  // and the next tick retries from the same point.
-  let logs
-  try {
-    logs = await chain.logsBatched({
-      address: FUEL_BURNER,
-      topics: [BUY_AND_BURN_TOPIC],
-      fromBlock,
-      toBlock: runTo,
-      rangeBlocks,
-      batchCalls: BURN_LOG_BATCH_CALLS,
-      pacingMs: BURN_BATCH_PACING_MS,
-    })
-  } catch (error) {
-    console.error('burn collector: log scan failed:', error?.message ?? error)
-    await recordBurnMetaError(kv, meta.lastBlock, 'scan-failed', error)
-    return { ok: false, reason: 'scan-failed' }
+  // Transport chain: transfers (indexed) -> blockscout (indexed) -> scan
+  // (batched eth_getLogs, last resort). First success wins; the watermark
+  // only advances after a fully successful transport + write, so a failed
+  // tick always retries from the same point. options.transports restricts
+  // the chain (used by tests).
+  const transportNames = Array.isArray(options.transports) && options.transports.length > 0
+    ? options.transports.filter((t) => TRANSPORTS[t])
+    : ['transfers', 'blockscout', 'scan']
+  let transport = null
+  let drips = null
+  let tsByBlock = null
+  const transportErrors = []
+  for (const name of transportNames) {
+    try {
+      const out = await TRANSPORTS[name]({ fetchImpl, rpcUrls, chain, fromBlock, toBlock: runTo, rangeBlocks })
+      transport = name
+      drips = out.drips
+      tsByBlock = out.tsByBlock
+      break
+    } catch (error) {
+      transportErrors.push(`${name}: ${error?.message ?? error}`.slice(0, 160))
+      console.error(`burn collector: ${name} transport failed:`, error?.message ?? error)
+    }
+  }
+  if (transport == null) {
+    await recordBurnMetaError(kv, meta.lastBlock, 'all-transports-failed', new Error(transportErrors.join(' | ')))
+    return { ok: false, reason: 'all-transports-failed' }
   }
   if (Date.now() > deadline) {
-    console.error('burn collector: deadline exceeded after log scan')
+    console.error('burn collector: deadline exceeded after transport read')
     await recordBurnMetaError(kv, meta.lastBlock, 'deadline')
     return { ok: false, reason: 'deadline' }
-  }
-
-  const drips = []
-  for (const log of logs) {
-    const drip = decodeBurnLog(log)
-    if (drip) drips.push(drip)
   }
 
   let stored = null
@@ -387,6 +623,7 @@ export async function runBurnCollector(env, options = {}) {
     fromBlock: fromBlock.toString(),
     toBlock: runTo.toString(),
     dripsScanned: drips.length,
+    transport,
     keysWritten: merged.changed ? 2 : 1,
     totals: merged.totals,
   }

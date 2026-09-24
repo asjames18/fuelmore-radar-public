@@ -1,7 +1,7 @@
 // Watchdog for the GitHub Actions publisher schedule ("Refresh FUEL activity").
 //
 // GitHub's scheduler drops most `*/15` triggers (observed ~8-10 runs/day, gaps
-// up to 7h), while the Worker's own cron fires reliably every 15 minutes. This
+// up to 7h), while the Worker's own cron fires reliably every 5 minutes. This
 // watchdog checks how old the two pipeline snapshots are and forces a
 // workflow run via `workflow_dispatch` only when the pipeline has gone quiet.
 // It also logs the age of the Worker's own market-history collection so a

@@ -289,7 +289,24 @@ export default {
       const entry = { msg: 'watchdog-check', at: new Date().toISOString(), ...result }
       console.log(JSON.stringify(entry))
       try {
-        await env.ACTIVITY?.put?.('watchdog-last-check', JSON.stringify(entry))
+        // Write-bounded: at */5 this tick fires 288x/day against the 1,000
+        // KV writes/day free cap. The check result only changes when the
+        // pipeline state changes, so persist on state change only — the
+        // console log above keeps every tick diagnosable via Workers Logs.
+        const prevRaw = await env.ACTIVITY?.get?.('watchdog-last-check')
+        let changed = true
+        try {
+          const prev = JSON.parse(prevRaw ?? 'null')
+          changed =
+            !prev ||
+            prev.checked !== result.checked ||
+            prev.stale !== result.stale ||
+            prev.dispatched !== result.dispatched ||
+            prev.reason !== result.reason
+        } catch {
+          changed = true
+        }
+        if (changed) await env.ACTIVITY?.put?.('watchdog-last-check', JSON.stringify(entry))
       } catch {
         // Diagnostics are best-effort; the check result is already logged.
       }

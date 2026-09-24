@@ -19,7 +19,7 @@ export function Guide() {
         <p>
           There is no wallet connection and no trading here. To look up a wallet you paste
           its address — that is the only thing we ever ask for. Numbers are scheduled to
-          refresh about every 15 minutes, and every value carries its own timestamp so you
+          refresh about every 5 minutes, and every value carries its own timestamp so you
           can see how fresh it is. Nothing on this site is financial advice.
         </p>
       </div>
@@ -58,7 +58,7 @@ export function Guide() {
           24-hour buys and sells, and the pool address behind each price, with links
           out to Dexscreener. Top holders shows how concentrated each token is.
           The comparison chart draws on the radar's own market history — recorded
-          every 15 minutes with failover across Dexscreener, GeckoTerminal, and
+          every 5 minutes with failover across Dexscreener, GeckoTerminal, and
           DexPaprika, rejecting stale quotes — plus fresher points your browser
           adds between syncs. Each point names its source, so the chart and the
           market cards always tell the same story. Today&apos;s flow names the day&apos;s

@@ -11,6 +11,8 @@ import {
   aggregateDripsDetail,
   mergeBurnSeries,
   runBurnCollector,
+  fetchBurnDripsViaTransfers,
+  fetchBurnLogsBlockscout,
 } from './burn-collect.mjs'
 
 const TOPIC = BUY_AND_BURN_TOPIC
@@ -129,10 +131,15 @@ function fakeKv() {
   }
 }
 
-function fakeChain({ logs = [], timestamps = new Map(), head = 70000100n }) {
+function fakeChain({ logs = [], timestamps = new Map(), head = 70000100n, receiptsMap = new Map() }) {
   const seenBatches = []
   return {
     seenBatches,
+    async receipts(hashes) {
+      const map = new Map()
+      for (const h of hashes) map.set(h, receiptsMap.get(h) ?? null)
+      return map
+    },
     async headBlock() {
       return head
     },
@@ -167,7 +174,7 @@ describe('runBurnCollector', () => {
       timestamps: ts,
       head: 63116000n,
     })
-    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(res.ok, true)
     assert.equal(res.dripsScanned, 1)
     assert.deepEqual(kv.writes, [BURNS_KEY, BURN_META_KEY])
@@ -181,7 +188,7 @@ describe('runBurnCollector', () => {
   it('quiet hour: no new drips writes only the meta watermark', async () => {
     const kv = fakeKv()
     const chain = fakeChain({ logs: [], head: 70000100n })
-    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(res.ok, true)
     assert.equal(res.dripsScanned, 0)
     assert.deepEqual(kv.writes, [BURN_META_KEY])
@@ -192,7 +199,7 @@ describe('runBurnCollector', () => {
     const ts = new Map([['70000010', 1790035200]])
     const log = burnLog({ blockNumber: 70000010n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n })
     const chain = fakeChain({ logs: [log], timestamps: ts, head: 70000020n })
-    const first = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    const first = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(first.ok, true)
     // Simulate a watermark rewind (retry of the same range): the same drip
     // is scanned again but must not be counted twice.
@@ -200,7 +207,7 @@ describe('runBurnCollector', () => {
     // Force the watermark back by hand-writing an older meta.
     await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '70000009', last_run_ts: 1, status: 'ok' }))
     kv.writes.length = 0
-    const second = await runBurnCollector({ ACTIVITY: kv }, { chain: chain2, deadline: Date.now() + 60000 })
+    const second = await runBurnCollector({ ACTIVITY: kv }, { chain: chain2, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(second.ok, true)
     const series = await kv.get(BURNS_KEY, 'json')
     assert.equal(series.totals.drips, 1)
@@ -231,7 +238,7 @@ describe('runBurnCollector', () => {
     chain.logsBatched = async () => {
       throw new Error('boom')
     }
-    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(res.ok, false)
     assert.equal(res.reason, 'scan-failed')
     const meta = await kv.get(BURN_META_KEY, 'json')
@@ -315,7 +322,7 @@ describe('provider log-range chunking', () => {
       batchedArgs = args
       return origLogsBatched(args)
     }
-    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000 })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { chain, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(res.ok, true)
     assert.equal(res.dripsScanned, 2)
     // 70000000..70000030 is 31 blocks -> four 10-block ranges on the
@@ -350,7 +357,7 @@ describe('provider log-range chunking', () => {
     }
     const kv = fakeKv()
     await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '71220000', last_run_ts: 1, status: 'ok' }))
-    const res = await runBurnCollector({ ACTIVITY: kv, RPC_URL: 'https://provider.test/v2/secret' }, { fetchImpl, deadline: Date.now() + 60000 })
+    const res = await runBurnCollector({ ACTIVITY: kv, RPC_URL: 'https://provider.test/v2/secret' }, { fetchImpl, deadline: Date.now() + 60000, transports: ['scan'] })
     assert.equal(res.ok, true)
     // Every request went to the managed endpoint (the 2026-09-24 revert:
     // worker egress to the public RPC 429s, so the collector is back on
@@ -364,5 +371,212 @@ describe('provider log-range chunking', () => {
       const filter = item.params[0]
       assert.ok(BigInt(filter.toBlock) - BigInt(filter.fromBlock) <= 9n)
     }
+  })
+})
+
+describe('transfers transport', () => {
+  const BLOCK = 71299072n
+  const BLOCK_HEX = '0x43ff000'
+  const TS_ISO = '2026-09-24T10:05:00.000Z'
+  const TS_SEC = Math.floor(Date.parse(TS_ISO) / 1000)
+
+  function transfersPage(items, pageKey) {
+    return {
+      jsonrpc: '2.0',
+      id: 1,
+      result: { transfers: items, ...(pageKey ? { pageKey } : {}) },
+    }
+  }
+
+  function dripTransfer(hash = '0xtx1') {
+    return { hash, blockNum: BLOCK_HEX, metadata: { blockTimestamp: TS_ISO } }
+  }
+
+  function dripReceipt(txHash = '0xtx1') {
+    return {
+      logs: [
+        burnLog({ blockNumber: BLOCK, logIndex: 3n, ethWei: 10n ** 15n, fuelWei: 5n * 10n ** 20n, txHash }),
+      ],
+    }
+  }
+
+  it('finds drips via transfers + receipts and advances the watermark', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '71299070', last_run_ts: 1, status: 'ok' }))
+    const fetchImpl = async (url, init) => {
+      const payload = JSON.parse(init.body)
+      assert.equal(payload.method, 'alchemy_getAssetTransfers')
+      const params = payload.params[0]
+      assert.deepEqual(params.contractAddresses, ['0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'])
+      assert.equal(params.fromAddress, FUEL_BURNER)
+      assert.equal(params.toAddress, '0x0000000000000000000000000000000000000000')
+      assert.equal(params.fromBlock, '0x43fefff')
+      assert.equal(params.toBlock, '0x43ff008')
+      return Response.json(transfersPage([dripTransfer()]))
+    }
+    const chain = fakeChain({ head: 71299080n, receiptsMap: new Map([['0xtx1', dripReceipt()]]) })
+    const res = await runBurnCollector(
+      { ACTIVITY: kv },
+      { fetchImpl, chain, deadline: Date.now() + 60000, transports: ['transfers'] },
+    )
+    assert.equal(res.ok, true)
+    assert.equal(res.transport, 'transfers')
+    assert.equal(res.dripsScanned, 1)
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '71299080')
+    const series = await kv.get(BURNS_KEY, 'json')
+    assert.equal(series.totals.drips, 1)
+    assert.equal(series.days.length, 1)
+    assert.equal(series.days[0].date, '2026-09-24')
+    assert.ok(Math.abs(series.days[0].fuel - 500) < 1e-6)
+  })
+
+  it('follows transfers pagination across pages', async () => {
+    const fetchImpl = async (url, init) => {
+      const payload = JSON.parse(init.body)
+      const params = payload.params[0]
+      if (!params.pageKey) return Response.json(transfersPage([dripTransfer('0xtx1')], 'page-2'))
+      assert.equal(params.pageKey, 'page-2')
+      return Response.json(transfersPage([dripTransfer('0xtx2')]))
+    }
+    const chain = fakeChain({
+      receiptsMap: new Map([
+        ['0xtx1', dripReceipt('0xtx1')],
+        ['0xtx2', dripReceipt('0xtx2')],
+      ]),
+    })
+    const { drips, tsByBlock } = await fetchBurnDripsViaTransfers({
+      fetchImpl,
+      rpcUrls: ['https://provider.test/x'],
+      chain,
+      fromBlock: 71299070n,
+      toBlock: 71299080n,
+    })
+    assert.equal(drips.length, 2)
+    assert.equal(tsByBlock.get(BLOCK.toString()), TS_SEC)
+  })
+
+  it('skips a transfer whose tx carries no BuyAndBurn event (never invents)', async () => {
+    const fetchImpl = async () => Response.json(transfersPage([dripTransfer()]))
+    const chain = fakeChain({ receiptsMap: new Map([['0xtx1', { logs: [] }]]) })
+    const { drips } = await fetchBurnDripsViaTransfers({
+      fetchImpl,
+      rpcUrls: ['https://provider.test/x'],
+      chain,
+      fromBlock: 71299070n,
+      toBlock: 71299080n,
+    })
+    assert.equal(drips.length, 0)
+  })
+
+  it('treats a malformed transfers response as unsupported (not zero drips)', async () => {
+    const fetchImpl = async () => Response.json({ jsonrpc: '2.0', id: 1, result: null })
+    const chain = fakeChain({})
+    await assert.rejects(
+      () => fetchBurnDripsViaTransfers({ fetchImpl, rpcUrls: ['https://provider.test/x'], chain, fromBlock: 1n, toBlock: 2n }),
+      /malformed response/,
+    )
+  })
+})
+
+describe('transport fallback chain', () => {
+  it('falls back to the scan when transfers is unsupported (-32601) and blockscout is challenged', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '69999999', last_run_ts: 1, status: 'ok' }))
+    const ts = new Map([['70000005', 1790035200]])
+    const chain = fakeChain({
+      logs: [burnLog({ blockNumber: 70000005n, logIndex: 0n, ethWei: 10n ** 15n, fuelWei: 10n ** 21n })],
+      timestamps: ts,
+      head: 70000030n,
+    })
+    const fetchImpl = async (url, init) => {
+      if (!init?.body) return new Response('challenge', { status: 403 })
+      const payload = JSON.parse(init.body)
+      if (payload.method === 'alchemy_getAssetTransfers') {
+        return Response.json({ jsonrpc: '2.0', id: payload.id, error: { code: -32601, message: 'Method not found' } })
+      }
+      throw new Error('unexpected RPC method ' + payload.method)
+    }
+    const res = await runBurnCollector({ ACTIVITY: kv }, { fetchImpl, chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, true)
+    assert.equal(res.transport, 'scan')
+    assert.equal(res.dripsScanned, 1)
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '70000030')
+  })
+
+  it('records all-transports-failed without moving the watermark when everything fails', async () => {
+    const kv = fakeKv()
+    await kv.put(BURN_META_KEY, JSON.stringify({ last_block: '69497245', last_run_ts: 1, status: 'ok' }))
+    const chain = fakeChain({ head: 69500000n })
+    chain.logsBatched = async () => {
+      throw new Error('boom')
+    }
+    const fetchImpl = async () => new Response('nope', { status: 500 })
+    const res = await runBurnCollector({ ACTIVITY: kv }, { fetchImpl, chain, deadline: Date.now() + 60000 })
+    assert.equal(res.ok, false)
+    assert.equal(res.reason, 'all-transports-failed')
+    const meta = await kv.get(BURN_META_KEY, 'json')
+    assert.equal(meta.last_block, '69497245')
+    assert.equal(meta.status, 'error')
+    assert.equal(meta.reason, 'all-transports-failed')
+  })
+})
+
+describe('blockscout transport', () => {
+  function bsItem(overrides = {}) {
+    return {
+      block_number: 71299072,
+      index: 3,
+      transaction_hash: '0xtx1',
+      timestamp: '2026-09-24T10:05:00.000Z',
+      topics: [
+        BUY_AND_BURN_TOPIC,
+        '0x' + (10n ** 15n).toString(16).padStart(64, '0'),
+        '0x' + (5n * 10n ** 20n).toString(16).padStart(64, '0'),
+        '0x' + '11'.repeat(20).padStart(64, '0'),
+      ],
+      ...overrides,
+    }
+  }
+
+  it('maps explorer log items into decodable drips', async () => {
+    const fetchImpl = async (url) => {
+      assert.ok(String(url).includes('/api/v2/addresses/'))
+      assert.ok(String(url).includes(`topic0=${BUY_AND_BURN_TOPIC}`))
+      return Response.json({ items: [bsItem()], next_page_params: null })
+    }
+    const { logs, tsByBlock } = await fetchBurnLogsBlockscout({ fetchImpl, fromBlock: 71299070n, toBlock: 71299080n })
+    assert.equal(logs.length, 1)
+    const drip = decodeBurnLog(logs[0])
+    assert.ok(drip)
+    assert.equal(drip.fuelWei, 5n * 10n ** 20n)
+    assert.equal(drip.dripId, '71299072:3')
+    assert.equal(tsByBlock.get('71299072'), Math.floor(Date.parse('2026-09-24T10:05:00.000Z') / 1000))
+  })
+
+  it('throws on a challenge/403 so the caller falls through', async () => {
+    const fetchImpl = async () => new Response('Just a moment...', { status: 403 })
+    await assert.rejects(
+      () => fetchBurnLogsBlockscout({ fetchImpl, fromBlock: 1n, toBlock: 2n }),
+      /blockscout HTTP 403/,
+    )
+  })
+
+  it('stops paginating once items fall below fromBlock', async () => {
+    const calls = []
+    const fetchImpl = async (url) => {
+      calls.push(String(url))
+      if (calls.length === 1) {
+        return Response.json({
+          items: [bsItem()],
+          next_page_params: { block_number: 71299000, index: 0, items_count: 50 },
+        })
+      }
+      return Response.json({ items: [bsItem({ block_number: 71298000 })], next_page_params: null })
+    }
+    const { logs } = await fetchBurnLogsBlockscout({ fetchImpl, fromBlock: 71299070n, toBlock: 71299080n })
+    assert.equal(logs.length, 1)
+    assert.equal(calls.length, 2)
   })
 })

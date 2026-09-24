@@ -28,7 +28,7 @@ Failure messages distinguish throttling and snapshot changes without raw URLs.
 
 ### Comparison charts and public presentation — 2026-09-20 UTC
 
-Public visitors see only last sync time and the 15-minute cadence in the header.
+Public visitors see only last sync time and the 5-minute cadence in the header.
 Detailed sync controls, badges, and source timestamp diagnostics remain private.
 Comparison charts default to FUEL and MORE together: price is percent change from
 one shared nonzero observation; liquidity uses USD. Individual token views retain
@@ -58,7 +58,7 @@ protocol groups retain their pinned block/hash together. No wallet data is store
 GET /api/dashboard reads storage without calling upstream services. The browser
 hydrates its edition-specific cache immediately, checks the endpoint every minute,
 keeps data on fetch/storage failure, and rejects older syncs and invalid envelopes.
-The public header shows only the last sync time and 15-minute cadence; detailed
+The public header shows only the last sync time and 5-minute cadence; detailed
 source timestamps, diagnostics, manual refresh, and status badges remain private. Data older than 30 minutes is stale;
 provider delays and GitHub scheduling can extend that age. Market history records
 the observation timestamp, never each repeated cache read. Localhost retains direct
@@ -89,7 +89,7 @@ validated snapshot through block 67592507 to shared KV. The personal site displa
 that same block with fresh coverage. Scheduling can be delayed by GitHub Actions;
 this is periodic collection, not a guaranteed real-time feed. Because GitHub drops
 most schedule triggers (observed ~8-10 runs/day with gaps up to 7h), the Worker's
-own reliable 15-minute cron runs a watchdog (`server/watchdog.mjs`): when either
+own reliable 5-minute cron runs a watchdog (`server/watchdog.mjs`): when either
 pipeline snapshot in KV is older than 4 hours it forces a `workflow_dispatch` run
 of the same workflow, with a 60-minute cooldown between forced runs. The watchdog
 needs the `GITHUB_DISPATCH_TOKEN` Worker secret (fine-grained PAT, Actions: Read
@@ -215,7 +215,7 @@ The Markets view focuses on the configured FUEL/WETH and MORE/WETH pools. It
 shows market snapshots and links to the corresponding Dexscreener pages. Market
 figures are third-party observations, not executable quotes.
 
-Scheduled snapshots are collected every 15 minutes by the Worker's scheduled
+Scheduled snapshots are collected every 5 minutes by the Worker's scheduled
 handler into the `market-history-v1` KV key (90 days of points, all-or-nothing
 per run: both pairs must fetch and validate or nothing is written).
 `server/price-sources.mjs` tries price sources in ordered failover —
@@ -954,3 +954,32 @@ Desktop QA on current preview bundle `assets/index-BZmkmKPr.js`
 - Tests: +3 frontend (exact timestamp, passed-timestamp "Unlocking now"),
   +2 server (firstMaturityTs value, null when empty). Full suite, lint, build,
   and public isolation check all pass. Production untouched.
+
+## Refresh architecture — 2026-09-24 UTC
+
+The Worker cron moved from `*/15` to `*/5` (288 ticks/day). To stay inside the
+Cloudflare free KV limit (1,000 writes/day), per-tick diagnostic writes were
+bounded: `watchdog-last-check` and `market-snapshot-last-run` now write only
+when their state changes (steady ok/fail streaks add no information). Steady
+state is roughly 600 KV writes/day (burns metadata + market-history mirror).
+
+The burns collector no longer leads with raw `eth_getLogs` scans (unsuited to
+the ~96 ms Robinhood Chain block time and free-tier 10-block range limits).
+Transport order per tick is now:
+
+1. `alchemy_getAssetTransfers` for FUEL burner→zero-address transfers, used
+   only to locate candidate transactions; each candidate's receipt is fetched
+   and only the original `BuyAndBurn` event is counted (same counting rule as
+   before — one drip per event, never invented).
+2. Blockscout address-logs for the burner (graceful on challenge/403).
+3. The original batched `eth_getLogs` scan as the final fallback.
+
+The watermark advances through the queried range only on a successful
+transport; if every transport fails the watermark holds and the run records
+`all-transports-failed`. Chain reads use ordered RPC failover
+(`RPC_URL` → `RPC_URL_FALLBACKS` → official public RPC) with credential-safe
+error logging (host only — keys embedded in URL paths never reach logs).
+Failover triggers on network errors, HTTP 429/5xx, timeouts, and
+provider-level JSON-RPC throttling errors; method-level JSON-RPC errors still
+surface directly so log-range halving keeps working. Chart gap breaks in the market comparison now use a 15-minute
+threshold (three 5-minute slots) instead of 45 minutes.
