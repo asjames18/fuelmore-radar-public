@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { activityEnvelope, isUsableReport, loadReport, TOKEN, STALE_AFTER_SECONDS } from './activity-edge.mjs'
+import { WATCHDOG } from './watchdog.mjs'
 
 function report(block = '100', age = 60) {
   const throughTimestamp = Math.floor(Date.now() / 1000) - age
@@ -56,5 +57,12 @@ describe('activity publisher report selection', () => {
     assert.equal(activityEnvelope(report('100', STALE_AFTER_SECONDS + 10)).status, 'stale')
     assert.equal(activityEnvelope(null).status, 'error')
     assert.equal(activityEnvelope({ throughTimestamp: Date.now()/1000 }).report, null)
+  })
+  it('matches the watchdog force-dispatch cadence so "stale" means overdue, not between runs', () => {
+    // The publisher's observed cadence is ~3h and the watchdog forces a run at
+    // 240 minutes; a shorter threshold labeled healthy operation "stale" all
+    // day and the homepage warning never meant anything.
+    assert.equal(STALE_AFTER_SECONDS, WATCHDOG.staleMinutes * 60)
+    assert.equal(activityEnvelope(report('100', STALE_AFTER_SECONDS - 10)).status, 'ready')
   })
 })

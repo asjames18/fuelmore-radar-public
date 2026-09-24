@@ -6,7 +6,13 @@ import { MATURITY_DAY_COUNT } from './maturity.mjs'
 import { storeGetJson } from './d1-store.mjs'
 export const TOKEN = '0xe60C1F5d9bA7f62a392a78472a3Ab83DD62467A3'
 export const REPORT_KEY = 'fuel-activity-report-v1'
-export const STALE_AFTER_SECONDS = 3_600
+// The GitHub publisher's observed cadence is ~8-10 runs/day (~3h, gaps up to
+// 7h when the scheduler drops triggers); the watchdog force-dispatches a
+// workflow run at 240 minutes. A 1h threshold labeled healthy operation
+// "stale" all day, so the homepage "Delayed data" badge never meant anything.
+// This matches the watchdog threshold: 'stale' now means the pipeline is
+// overdue, not merely between scheduled runs.
+export const STALE_AFTER_SECONDS = 4 * 3_600
 const DAY = 86_400
 const uint = value => Number.isSafeInteger(value) && value >= 0
 const blockNumber = value => typeof value === 'string' && /^\d+$/.test(value)
