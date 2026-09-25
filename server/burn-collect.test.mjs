@@ -112,6 +112,26 @@ describe('aggregateDripsDetail + mergeBurnSeries', () => {
     const fresh = aggregateDripsDetail(drips, ts)
     assert.equal(fresh.size, 0)
   })
+
+  it('keeps 6 decimals in merged amounts (no float-division artifacts)', () => {
+    // Number(5031290000000000000000n) / 1e18 === 5031.290000000001; the
+    // served JSON must carry 5031.29 instead.
+    const drips = [
+      decodeBurnLog(burnLog({ blockNumber: 70000000n, logIndex: 0n, ethWei: 7216000000000000n, fuelWei: 5031290000000000000000n })),
+    ]
+    const fresh = aggregateDripsDetail(drips, ts)
+    const first = mergeBurnSeries(null, fresh)
+    assert.equal(first.days[0].fuel, 5031.29)
+    assert.equal(first.days[0].eth, 0.007216)
+    assert.equal(first.totals.fuel, 5031.29)
+    assert.equal(first.totals.eth, 0.007216)
+
+    // Re-merging the rounded JSON stays stable at display precision.
+    const second = mergeBurnSeries({ days: first.days }, fresh)
+    assert.equal(second.changed, false)
+    assert.equal(second.days[0].fuel, 5031.29)
+    assert.equal(second.totals.fuel, 5031.29)
+  })
 })
 
 function fakeKv() {

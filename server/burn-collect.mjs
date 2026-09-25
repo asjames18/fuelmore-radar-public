@@ -117,8 +117,9 @@ export function utcDate(tsSeconds) {
  */
 function weiToTokensFloat(wei) {
   // Precision note: values here are display-sized (millions of FUEL);
-  // exact wei accounting lives on-chain. Conversion keeps 6 decimals.
-  return Number(wei) / 1e18
+  // exact wei accounting lives on-chain. Conversion keeps 6 decimals so the
+  // JSON payload never carries float-division artifacts like 5031.290000000001.
+  return Math.round(Number(wei) / 1e12) / 1e6
 }
 
 /**
