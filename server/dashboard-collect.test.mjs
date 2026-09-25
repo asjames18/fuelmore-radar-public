@@ -220,6 +220,25 @@ it('buildDashboard assembles all sections from live sources', async () => {
   assert.equal(data.partial, false)
 })
 
+it('buildDashboard retries Dexscreener 429s honoring Retry-After instead of marking the source unavailable', async () => {
+  stubFetchAll()
+  const base = globalThis.fetch
+  let pairCalls = 0
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('dexscreener.com')) {
+      pairCalls++
+      if (pairCalls <= 2) {
+        return new Response('rate limited', { status: 429, headers: { 'Retry-After': '0.05' } })
+      }
+    }
+    return base(url, init)
+  }
+  const data = await buildDashboard({ RPC_URL: 'https://rpc.example' })
+  assert.equal(data.pairs.length, 2)
+  assert.equal(data.sources[0].status, 'available')
+  assert.ok(pairCalls > 2, `expected retries, saw ${pairCalls} pair calls`)
+})
+
 it('buildDashboard marks failed sources honestly and keeps going', async () => {
   stubFetchAll()
   const failing = globalThis.fetch

@@ -28,6 +28,7 @@
 
 import { resolveRpcUrls } from './rpc-config.mjs'
 import { toMinHex, hexToBigInt } from './minter-collect.mjs'
+import { parseRetryAfterMs } from './price-sources.mjs'
 
 export const DASHBOARD_KEY = 'dashboard-snapshot-v1'
 export const DASHBOARD_RUN_DEADLINE_MS = 4 * 60 * 1000
@@ -115,7 +116,13 @@ async function json(url, { attempt = 0, timeoutMs = 12_000 } = {}) {
   })
   if (!response.ok) {
     if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
-      await pause(500 * (attempt + 1))
+      // Honor a positive Retry-After (clamped by parseRetryAfterMs); otherwise
+      // exponential backoff. Mirrors the market snapshot's retry posture so a
+      // brief 429 storm doesn't flip the source to unavailable while the data
+      // is actually there. A genuinely-down source still throws after 3 tries.
+      const retryAfterMs =
+        response.status === 429 ? parseRetryAfterMs(response.headers.get('Retry-After')) : null
+      await pause(retryAfterMs ?? Math.min(1_000 * 2 ** attempt, 8_000))
       return json(url, { attempt: attempt + 1, timeoutMs })
     }
     throw new Error(`HTTP ${response.status} ${url}`)
