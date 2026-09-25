@@ -282,8 +282,10 @@ async function rpcHttpError(res) {
   // 400/413 (range limits, method restrictions, IP-based gating) in the
   // body, and without it the failure is undebuggable from worker logs.
   // Capped so a huge HTML error page can't flood the logs. This also lets
-  // isLogLimitError() see provider-described limits (free-tier "10 block
-  // range" phrasing included) so getLogsRange() can halve-and-retry them.
+  // isBlockRangeError()/isLogCountError() see provider-described limits
+  // (free-tier "10 block range" phrasing included) so getLogsRange() can
+  // fail fast on range rejections and halve-and-retry genuine log-count
+  // limits.
   let detail = ''
   try {
     const text = typeof res.text === 'function' ? await res.text() : ''
@@ -354,11 +356,23 @@ export async function mapConcurrent(items, concurrency, fn) {
   return results
 }
 
-function isLogLimitError(error) {
-  // Matches provider-described log limits, including the free-tier
-  // block-range phrasing observed 2026-09-24: "Under the Free tier plan, you
+function isBlockRangeError(error) {
+  // Provider rejects the RANGE SIZE itself (not the log count), e.g. the
+  // free-tier phrasing observed 2026-09-24: "Under the Free tier plan, you
   // can make eth_getLogs requests with up to a 10 block range..."
-  return /limit|too many|response size|block range|free tier/i.test(error?.message ?? '')
+  // Halving such a range converges only after ~14 halvings for a 100k-block
+  // scan (~16k subrequests), which always exhausts the worker's
+  // 50-subrequest budget and starves the other collectors on the tick
+  // (observed 2026-09-25: the hourly minter run poisoned the market and
+  // dashboard snapshots). Fail fast instead: the run records scan-failed
+  // and backs off for an hour.
+  return /block range|free tier/i.test(error?.message ?? '')
+}
+
+function isLogCountError(error) {
+  // Provider rejects the LOG COUNT ("too many logs", "response size"):
+  // halving genuinely converges here, so keep halve-and-retry.
+  return /too many|response size|limit/i.test(error?.message ?? '')
 }
 
 export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, rpcUrls = null, concurrency = RPC_CONCURRENCY } = {}) {
@@ -446,7 +460,12 @@ export function createChainReader({ fetchImpl = fetch, rpcUrl = PUBLIC_RPC_URL, 
         if (topics) filter.topics = topics
         return await single('eth_getLogs', [filter])
       } catch (error) {
-        if (from >= to || !isLogLimitError(error)) throw error
+        // Fail fast on block-range rejections (halving a 100k-block range
+        // against a 10-block provider cap needs ~14 halvings / ~16k
+        // subrequests and starves the tick's other collectors). Keep
+        // halve-and-retry only for genuine log-count limits, where it
+        // converges.
+        if (from >= to || isBlockRangeError(error) || !isLogCountError(error)) throw error
         const mid = (from + to) / 2n
         return [...(await tryRange(from, mid)), ...(await tryRange(mid + 1n, to))]
       }

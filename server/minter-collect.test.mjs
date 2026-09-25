@@ -743,12 +743,33 @@ describe('chain reader RPC error diagnosability', () => {
     await assert.rejects(() => chain.headBlock(), /RPC HTTP 400$/)
   })
 
-  it('halves-and-retries on the free-tier block-range phrasing', async () => {
-
+  it('fails fast on the free-tier block-range phrasing (no halving)', async () => {
     // Observed 2026-09-24: the provider rejects >10-block eth_getLogs with
     // "Under the Free tier plan, you can make eth_getLogs requests with up
-    // to a 10 block range..." — the chain reader must treat that as a log
-    // limit and halve down to 10-block requests instead of hard-failing.
+    // to a 10 block range..." Halving a 100k-block scan against that cap
+    // needs ~14 halvings (~16k subrequests) and starves the tick's other
+    // collectors (incident 2026-09-25). The reader must fail fast instead.
+    const seen = []
+    const fetchImpl = async (_url, { body }) => {
+      const payload = JSON.parse(body)
+      const filter = payload.params[0]
+      seen.push({ from: BigInt(filter.fromBlock), to: BigInt(filter.toBlock) })
+      return {
+        ok: false,
+        status: 400,
+        text: async () =>
+          '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":' +
+          '"Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range. ' +
+          'Upgrade to PAYG for expanded block range."}}',
+      }
+    }
+    const chain = createChainReader({ fetchImpl })
+    await assert.rejects(() => chain.logs({ address: '0xabc', fromBlock: 0n, toBlock: 99n }), /block range/)
+    assert.equal(seen.length, 1, 'expected exactly one attempt, no halving retries')
+  })
+
+  it('still halves-and-retries on genuine log-count limits', async () => {
+    // A "too many logs" rejection converges by halving, so that path is kept.
     const seen = []
     const succeeded = []
     const fetchImpl = async (_url, { body }) => {
@@ -761,10 +782,7 @@ describe('chain reader RPC error diagnosability', () => {
         return {
           ok: false,
           status: 400,
-          text: async () =>
-            '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":' +
-            '"Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range. ' +
-            'Upgrade to PAYG for expanded block range."}}',
+          text: async () => '{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"response exceeded the 10000 log limit; narrow the range"}}',
         }
       }
       succeeded.push({ from, to })
