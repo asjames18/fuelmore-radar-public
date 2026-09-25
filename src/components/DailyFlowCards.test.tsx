@@ -72,6 +72,15 @@ it('shows collecting instead of zeroes while the day has no data', async () => {
   await waitFor(() => expect(screen.getAllByText("Collecting today's flow…").length).toBe(2))
 })
 
+it('labels a stale collecting feed as delayed instead of collecting', async () => {
+  mockFetch({ ...stalePayload, status: 'collecting', buyers: [], sellers: [] })
+  render(<DailyFlowCards onLookupWallet={() => {}} />)
+  await waitFor(() =>
+    expect(screen.getAllByText(/Syncing paused — flow data is delayed/).length).toBe(2),
+  )
+  expect(screen.queryByText("Collecting today's flow…")).toBeNull()
+})
+
 it('shows an honest error when the request fails', async () => {
   mockFetch({}, false)
   render(<DailyFlowCards onLookupWallet={() => {}} />)

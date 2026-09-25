@@ -20,6 +20,7 @@ function FlowColumn({
   totalLabel,
   onLookupWallet,
   empty,
+  paused,
 }: {
   title: string
   entries: FlowEntry[] | null
@@ -27,6 +28,7 @@ function FlowColumn({
   totalLabel: string
   onLookupWallet: (address: string) => void
   empty: boolean
+  paused: boolean
 }) {
   return (
     <div className="holder-column">
@@ -36,7 +38,9 @@ function FlowColumn({
         <small>{totalLabel}</small>
       </header>
       {empty ? (
-        <p className="holder-empty">Collecting today&apos;s flow…</p>
+        <p className="holder-empty">
+          {paused ? 'Syncing paused — flow data is delayed.' : "Collecting today's flow…"}
+        </p>
       ) : entries && entries.length > 0 ? (
         <ol>
           {entries.map((entry, index) => (
@@ -85,6 +89,9 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
   // worker-owned, so a through_time older than the stale threshold means the
   // collector is stuck, not merely between ticks.
   const syncPaused = isFreshnessStale(flows?.through_time ? Date.parse(flows.through_time) : null)
+  // A "collecting" payload with a stale through_time is not collecting at all —
+  // keep the delayed/stale state distinct from the genuine initial-load state.
+  const stalled = collecting && syncPaused
   const freshness =
     flows?.through_block != null
       ? `Data through block ${Number(flows.through_block).toLocaleString('en-US')}${
@@ -122,6 +129,7 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
             totalLabel="buy swaps today"
             onLookupWallet={onLookupWallet}
             empty={collecting}
+            paused={stalled}
           />
           <FlowColumn
             title="Top sellers"
@@ -130,6 +138,7 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
             totalLabel="sell swaps today"
             onLookupWallet={onLookupWallet}
             empty={collecting}
+            paused={stalled}
           />
         </div>
       )}
