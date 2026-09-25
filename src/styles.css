@@ -622,6 +622,10 @@ footer span { color: var(--green); font-size: 11px; } footer p { margin: 0; } fo
 .public-sync { display: flex; flex-direction: column; gap: 3px; text-align: right; color: var(--muted); font-size: 12px; }
 .public-sync small { font-size: 11px; }
 .public-sync .sync-paused-note { color: var(--amber); }
+/* Reusable amber paused-sync note for any worker-owned feed whose newest
+   collected point is older than the stale threshold. Scoped so it wins over
+   the muted caption / panel-heading colors. */
+caption .sync-paused-note, .panel-heading .sync-paused-note { color: var(--amber); }
 /* Calm worker-owned freshness indicator: shown only while the newest
    server-collected market point is fresh. No timestamps, no text. */
 .public-sync .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(54,255,106,.45); align-self: flex-end; }

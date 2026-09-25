@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { fetchMinters, type MinterRow } from '../lib/minter'
-import { shortAddress, timeAgo } from '../lib/format'
+import { shortAddress, timeAgo, isFreshnessStale } from '../lib/format'
 
 type SortKey = 'claimed' | 'sold' | 'bought' | 'pct_sold' | 'remint_count' | 'last_active_ts'
 type Dir = 'asc' | 'desc'
@@ -41,6 +41,7 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
   const [rows, setRows] = useState<MinterRow[] | null>(null)
   const [methodology, setMethodology] = useState('')
   const [freshness, setFreshness] = useState<string | null>(null)
+  const [syncPaused, setSyncPaused] = useState(false)
   const [sort, setSort] = useState<SortKey>('sold')
   const [dir, setDir] = useState<Dir>('desc')
   const [failed, setFailed] = useState(false)
@@ -49,12 +50,17 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
     let live = true
     async function load() {
       setFailed(false)
+      setSyncPaused(false)
       try {
         const data = await fetchMinters(sort, dir, 100)
         if (!live) return
         setRows(data.rows)
         setMethodology(data.methodology)
         setFreshness(fmtThrough(data.through_block, data.through_time))
+        // The minter feed is worker-owned like market data: flag it paused when
+        // the newest collected point is older than the stale threshold, instead
+        // of letting a bare old timestamp imply the table is current.
+        setSyncPaused(isFreshnessStale(data.through_time ? Date.parse(data.through_time) : null))
       } catch {
         if (live) setFailed(true)
       }
@@ -96,6 +102,12 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
             <caption className="muted">
               {rows.length} minter{rows.length === 1 ? '' : 's'}
               {freshness ? ` · ${freshness}` : ''}
+              {syncPaused && (
+                <>
+                  {' · '}
+                  <small className="sync-paused-note">Syncing paused — showing last available data</small>
+                </>
+              )}
             </caption>
             <thead>
               <tr>

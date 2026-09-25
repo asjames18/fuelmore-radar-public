@@ -21,7 +21,13 @@ const payload: DailyFlowsResponse = {
   usd_missing: 1,
   note: 'Test flows note.',
   through_block: '69275861',
-  through_time: new Date(1758499600 * 1000).toISOString(),
+  // Fresh as of test time; a stale fixture is exercised separately below.
+  through_time: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+}
+
+const stalePayload: DailyFlowsResponse = {
+  ...payload,
+  through_time: new Date(Date.now() - 25 * 3600 * 1000).toISOString(),
 }
 
 function mockFetch(data: unknown, ok = true) {
@@ -50,6 +56,14 @@ it('renders top buyers and sellers with FUEL and approximate USD', async () => {
   expect(screen.getByText('~USD unavailable')).toBeTruthy()
   expect(screen.getByText('397')).toBeTruthy()
   expect(screen.getByText('Test flows note.')).toBeTruthy()
+  expect(screen.queryByText(/Syncing paused/)).toBeNull()
+})
+
+it('shows the syncing-paused note when the flow feed is stale', async () => {
+  mockFetch(stalePayload)
+  render(<DailyFlowCards onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
+  expect(screen.getByText(/Data through block 69,275,861/)).toBeTruthy()
 })
 
 it('shows collecting instead of zeroes while the day has no data', async () => {

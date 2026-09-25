@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchDailyFlows, type DailyFlowsResponse, type FlowEntry } from '../lib/minter'
-import { formatUsd, shortAddress, timeAgo } from '../lib/format'
+import { formatUsd, shortAddress, timeAgo, isFreshnessStale } from '../lib/format'
 
 const fmtFuel = (value: number | null) => {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -81,6 +81,10 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
   }, [])
 
   const collecting = !failed && (!flows || flows.status === 'collecting')
+  // Same paused-sync treatment as the topbar market freshness: the flow feed is
+  // worker-owned, so a through_time older than the stale threshold means the
+  // collector is stuck, not merely between ticks.
+  const syncPaused = isFreshnessStale(flows?.through_time ? Date.parse(flows.through_time) : null)
   const freshness =
     flows?.through_block != null
       ? `Data through block ${Number(flows.through_block).toLocaleString('en-US')}${
@@ -96,6 +100,12 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
           <p>
             Top FUEL buyers and sellers{flows ? ` · ${flows.date} ET` : ''}
             {freshness ? ` · ${freshness}` : ''}
+            {syncPaused && (
+              <>
+                {' · '}
+                <small className="sync-paused-note">Syncing paused — showing last available data</small>
+              </>
+            )}
           </p>
         </div>
       </div>

@@ -37,7 +37,13 @@ const payload: MintersResponse = {
   ],
   methodology: 'Test methodology note.',
   through_block: '69275861',
-  through_time: new Date(1758499600 * 1000).toISOString(),
+  // Fresh as of test time; a stale fixture is exercised separately below.
+  through_time: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+}
+
+const stalePayload: MintersResponse = {
+  ...payload,
+  through_time: new Date(Date.now() - 25 * 3600 * 1000).toISOString(),
 }
 
 function mockFetch(data: unknown, ok = true) {
@@ -68,6 +74,14 @@ it('renders the minter table with claimed, sold, bought, pct and re-mints', asyn
   expect(within(table).getByText('245')).toBeTruthy()
   expect(within(table).getByText('0.0770 ETH')).toBeTruthy()
   expect(screen.getByText('Test methodology note.')).toBeTruthy()
+  expect(screen.getByText(/Data through block 69,275,861/)).toBeTruthy()
+  expect(screen.queryByText(/Syncing paused/)).toBeNull()
+})
+
+it('shows the syncing-paused note when the minter feed is stale', async () => {
+  mockFetch(stalePayload)
+  render(<MintersView onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
   expect(screen.getByText(/Data through block 69,275,861/)).toBeTruthy()
 })
 
