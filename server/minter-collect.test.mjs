@@ -258,7 +258,7 @@ describe('runMinterCollector run cap', () => {
       },
       list: async () => ({ keys: [], list_complete: true }),
     }
-    const head = FUEL_FIRST_BLOCK + 50000n
+    const head = FUEL_FIRST_BLOCK + MAX_RUN_BLOCKS + 50000n
     const chain = stubChain({ head, wethUsd: null })
     const result = await runMinterCollector({ ACTIVITY: kv }, { chain })
     assert.equal(result.ok, true)
