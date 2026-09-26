@@ -11,7 +11,10 @@
 
 Price charts offer official Dexscreener USD candlesticks for each canonical pool,
 plus a saved-observation USD overlay (FUEL left axis, MORE right axis) and optional
-percentage comparison. Independent price axes are explicitly labeled. Liquidity
+percentage comparison. The candle embeds are temporary: once the radar's own
+collector history spans 7 days, they retire automatically and the chart defaults
+to the own-history Compare USD view (external Dexscreener pool links remain).
+Independent price axes are explicitly labeled. Liquidity
 uses a filled USD comparison; no synthetic liquidity candles or trade history are
 invented. The exact-observation dropdown was removed from both chart locations.
 Candle history is hosted by Dexscreener and depends on its availability; local

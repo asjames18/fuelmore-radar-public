@@ -37,8 +37,22 @@ export function MarketChart({ history, quotes }: {
   const [view, setView] = useState<View>('candles')
   const [range, setRange] = useState<ChartRange>('ALL')
   const {points, base, earliestAt} = useMemo(()=>marketComparison(history,range),[history,range])
+  // Doctrine: the Dexscreener candle embeds are temporary — they stay only
+  // until 7 days of the radar's own market history accumulate. Retire them
+  // automatically once the full collected series spans 7 days. The span is
+  // measured from the raw history (not the selected range), so a fixed range
+  // or a collector stall can never strand the chart without a candles view.
+  // The external "Open chart" links survive as links; only the embeds retire.
+  const OWN_HISTORY_MATURITY_DAYS = 7
+  let firstAt = Infinity, fullLastAt = -Infinity
+  for (const p of history) { if (p.at < firstAt) firstAt = p.at; if (p.at > fullLastAt) fullLastAt = p.at }
+  const ownHistoryMature = history.length > 1 && (fullLastAt - firstAt) / 86_400_000 >= OWN_HISTORY_MATURITY_DAYS
+  const viewOptions: View[] = ownHistoryMature ? ['usd', 'percent'] : ['candles', 'usd', 'percent']
+  // 'candles' is not an available view once the own history is mature — fold
+  // any lingering selection to 'usd' so the retired embeds never render.
+  const effectiveView = ownHistoryMature && view === 'candles' ? 'usd' : view
   const isPrice = metric === 'price'
-  const candles = isPrice && view==='candles'
+  const candles = isPrice && effectiveView==='candles'
   const normalized = isPrice && view==='percent'
   const dual = isPrice && !normalized && symbol==='Compare'
   const series = symbol === 'Compare' ? ['FUEL','MORE'] as const : [symbol]
@@ -87,9 +101,10 @@ export function MarketChart({ history, quotes }: {
     </div>
     <div className="chart-toolbar">
       <div className="segmented" aria-label="Chart token">{(['Compare','FUEL','MORE'] as const).map(token=><button key={token} aria-pressed={symbol===token} className={symbol===token?'active':''} onClick={()=>setSymbol(token)}>{token==='Compare'?'Both':token}</button>)}</div>
-      {isPrice && <div className="segmented" aria-label="Price presentation">{(['candles','usd','percent'] as const).map(v=><button key={v} aria-pressed={view===v} className={view===v?'active':''} onClick={()=>setView(v)}>{v==='candles'?'Candles':v==='usd'?'Compare USD':'Change %'}</button>)}</div>}
+      {isPrice && <div className="segmented" aria-label="Price presentation">{viewOptions.map(v=><button key={v} aria-pressed={effectiveView===v} className={effectiveView===v?'active':''} onClick={()=>setView(v)}>{v==='candles'?'Candles':v==='usd'?'Compare USD':'Change %'}</button>)}</div>}
       {!candles && <div className="segmented" aria-label="Chart range">{(['1D','7D','30D','ALL'] as const).map(r=><button key={r} aria-pressed={range===r} className={range===r?'active':''} onClick={()=>setRange(r)}>{r}</button>)}</div>}
     </div>
+    {isPrice && ownHistoryMature && <p className="chart-note">The radar's own history now covers 7+ days, so the Dexscreener candle embeds retired — the chart renders from collected observations. <a href={`${DEXSCREENER}/${PAIRS.fuel}`} target="_blank" rel="noreferrer">FUEL on Dexscreener ↗</a>{' · '}<a href={`${DEXSCREENER}/${PAIRS.more}`} target="_blank" rel="noreferrer">MORE on Dexscreener ↗</a></p>}
     {candles ? <>
       <div className={`candle-grid ${series.length===1?'single':''}`}>
         {series.map(token=><div className="candle-pane" key={token}>
@@ -112,7 +127,7 @@ export function MarketChart({ history, quotes }: {
       <div className="chart-wrap" role="img" aria-label={`${symbol} ${metric} ${normalized?'percentage':'USD'} comparison chart. Hover or focus a point for its value.`}>
         {!enough && <div className="chart-empty"><span>Building comparison history</span><small>The next successful sync adds another observation.</small></div>}
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart key={`${symbol}-${metric}-${view}-${range}`} data={points} margin={{top:18,right:8,left:0,bottom:0}}>
+          <ComposedChart key={`${symbol}-${metric}-${effectiveView}-${range}`} data={points} margin={{top:18,right:8,left:0,bottom:0}}>
             <defs>{series.map(token=><linearGradient key={token} id={`fill-${token}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={colors[token]} stopOpacity={0.24}/><stop offset="100%" stopColor={colors[token]} stopOpacity={0.01}/></linearGradient>)}</defs>
             <CartesianGrid stroke="#173321" strokeDasharray="2 4"/>
             <XAxis dataKey="at" type="number" domain={['dataMin','dataMax']} stroke="#70847a" tick={{fontSize:10}} tickFormatter={utcTick} minTickGap={45}/>

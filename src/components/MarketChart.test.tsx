@@ -100,3 +100,19 @@ it('names collector coverage when a fixed range outruns the available history',(
   fireEvent.click(screen.getByRole('button',{name:'ALL'}))
   expect(screen.queryByText(/Collector history starts/)).toBeNull()
 })
+it('retires Dexscreener candle embeds once 7 days of own history accumulate',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  const day = 86_400_000
+  // Nine daily observations span 8 days — past the doctrine's 7-day
+  // maturity threshold, so the embeds retire automatically.
+  const eightDays = Array.from({length: 9}, (_, i) => ({at: i*day, fuelPrice: 0.01 + i*0.001, morePrice: 0.00003, fuelLiquidity: 1000 + i*10, moreLiquidity: 100}))
+  render(<MarketChart history={eightDays}/>)
+  // No iframes, no Candles button — the chart defaults to Compare USD.
+  expect(screen.queryByTitle('FUEL USD candlestick chart')).toBeNull()
+  expect(screen.queryByRole('button',{name:'Candles'})).toBeNull()
+  expect(screen.getByText(/FUEL left · MORE right/)).toBeTruthy()
+  // The external pool links survive the retirement, and the note says why.
+  expect(screen.getByRole('link',{name:/FUEL on Dexscreener/})).toBeTruthy()
+  expect(screen.getByRole('link',{name:/MORE on Dexscreener/})).toBeTruthy()
+  expect(screen.getByText(/candle embeds retired/)).toBeTruthy()
+})
