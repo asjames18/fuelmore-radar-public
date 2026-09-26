@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Flame } from 'lucide-react'
 import { fetchBurns, type BurnsResponse } from '../lib/burns'
-import { timeAgo } from '../lib/format'
+import { isFreshnessStale, timeAgo } from '../lib/format'
 
 const FUEL_GREEN = '#36ff6a'
 
@@ -85,10 +85,12 @@ export function BurnChart() {
   const collecting = !failed && (!data || data.status === 'collecting')
   const freshness =
     data?.through_block != null
-      ? `Data through block ${Number(data.through_block).toLocaleString('en-US')}${
-          data.through_time ? ` · ${timeAgo(data.through_time)}` : ''
-        }`
+      ? `Data through block ${Number(data.through_block).toLocaleString('en-US')}${data.through_time ? ` · ${timeAgo(data.through_time)}` : ''}`
       : null
+  // The burn feed is worker-owned like market data: flag it paused when the
+  // newest collected point is older than the stale threshold, instead of
+  // letting a bare old timestamp imply the chart is current.
+  const syncPaused = isFreshnessStale(data?.through_time ? Date.parse(data.through_time) : null)
   const totals = data?.totals
 
   return (
@@ -101,6 +103,12 @@ export function BurnChart() {
           </h2>
           <p>
             Daily FUEL destroyed by the burn engine{freshness ? ` · ${freshness}` : ''}
+            {syncPaused && (
+              <>
+                {' · '}
+                <small className="sync-paused-note">Syncing paused — showing last available data</small>
+              </>
+            )}
           </p>
         </div>
       </div>

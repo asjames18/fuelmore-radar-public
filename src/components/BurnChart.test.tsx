@@ -50,6 +50,19 @@ it('shows collecting instead of zeroes while the series is empty', async () => {
   expect(screen.queryByText('4.4M FUEL')).toBeNull()
 })
 
+it('shows the syncing-paused note when burn data is stale', async () => {
+  mockFetch(payload)
+  render(<BurnChart />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
+})
+
+it('hides the syncing-paused note when burn data is fresh', async () => {
+  mockFetch({ ...payload, through_time: new Date().toISOString() })
+  render(<BurnChart />)
+  await waitFor(() => expect(screen.getByText(/Data through block/)).toBeTruthy())
+  expect(screen.queryByText(/Syncing paused/)).toBeNull()
+})
+
 it('shows an honest error when the request fails', async () => {
   mockFetch({}, false)
   render(<BurnChart />)
