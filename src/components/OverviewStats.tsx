@@ -136,7 +136,7 @@ export function OverviewStats({ protocol, protocolObservation, onSeeProtocol, on
         <Stat label="Active mint positions" value={num(protocol.activeMinters)}/>
         <Stat label="FUEL staked" value={formatToken(protocol.totalStaked)}/>
         <Stat label="FUEL burned" value={formatToken(protocol.fuelBurnt)}/>
-        <Stat label="MORE burned" value={formatToken(protocol.moreBurnt)}/>
+        <Stat label="MORE removed" value={formatToken(protocol.moreBurnt)}/>
         <Stat label="Pump fund" value={formatEth(protocol.vaultBalance)}/>
       </div>
       {supplyWarning && <p className="pulse-note" role="status">⚠ {supplyWarning}</p>}

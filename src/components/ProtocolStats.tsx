@@ -31,7 +31,7 @@ export function ProtocolStats({ protocol }: { protocol: ProtocolSnapshot }) {
   ]
   const burns: Stat[] = [
     { label: 'FUEL burned', value: formatToken(protocol.fuelBurnt), note: 'reported by burn controller', Icon: Flame },
-    { label: 'MORE burned', value: formatToken(protocol.moreBurnt), note: 'reported by burn controller', Icon: Flame },
+    { label: 'MORE removed', value: formatToken(protocol.moreBurnt), note: 'dead-address balance — supply-neutral (reported by burn controller)', Icon: Flame },
     { label: 'ETH used for burns', value: formatEth(protocol.ethUsedFuelBurns === null || protocol.ethUsedMoreBurns === null ? null : protocol.ethUsedFuelBurns + protocol.ethUsedMoreBurns), note: 'both burn controllers', Icon: Flame },
   ]
   const vault: Stat[] = [
