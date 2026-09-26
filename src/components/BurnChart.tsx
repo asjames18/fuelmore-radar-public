@@ -31,6 +31,7 @@ type ChartPoint = {
   cumulative: number
   eth: number | null
   drips: number | null
+  partial: boolean
 }
 
 function BurnTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
@@ -38,7 +39,10 @@ function BurnTooltip({ active, payload }: { active?: boolean; payload?: Array<{ 
   const point = payload[0].payload
   return (
     <div className="chart-tooltip">
-      <strong>{point.date}</strong>
+      <strong>
+        {point.date}
+        {point.partial && ' · partial day'}
+      </strong>
       <span>Burned: {fmtFuel(point.fuel)} FUEL</span>
       <span>Cumulative: {fmtFuel(point.cumulative)} FUEL</span>
       <span>ETH spent: {fmtEth(point.eth)}</span>
@@ -68,6 +72,10 @@ export function BurnChart() {
   const points: ChartPoint[] = useMemo(() => {
     if (!data || data.status !== 'ok') return []
     let running = 0
+    // The newest bar is a partial day when it carries today's UTC date — the
+    // day isn't over yet, so don't present it as a complete daily figure.
+    const todayUtc = new Date().toISOString().slice(0, 10)
+    const last = data.days[data.days.length - 1]
     return data.days.map((day) => {
       const fuel = day.fuel ?? 0
       running += fuel
@@ -78,9 +86,11 @@ export function BurnChart() {
         cumulative: running,
         eth: day.eth,
         drips: day.drips,
+        partial: day.date === todayUtc && day.date === last?.date,
       }
     })
   }, [data])
+  const lastPartial = points.length > 0 && points[points.length - 1].partial
 
   const collecting = !failed && (!data || data.status === 'collecting')
   const freshness =
@@ -175,6 +185,11 @@ export function BurnChart() {
               <span className="dot" style={{ background: 'var(--amber)' }}></span>Cumulative
             </span>
           </div>
+          {lastPartial && (
+            <p className="activity-note">
+              Today&apos;s bar is a partial day — the UTC day isn&apos;t over yet.
+            </p>
+          )}
         </>
       )}
       {data?.methodology && <p className="activity-note">{data.methodology}</p>}

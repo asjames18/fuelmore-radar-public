@@ -68,3 +68,25 @@ it('shows an honest error when the request fails', async () => {
   render(<BurnChart />)
   await waitFor(() => expect(screen.getByText(/could not be loaded/)).toBeTruthy())
 })
+
+it('marks the newest bar as a partial day when it carries today\'s UTC date', async () => {
+  const today = new Date().toISOString().slice(0, 10)
+  mockFetch({
+    ...payload,
+    days: [
+      { date: '2026-09-21', fuel: 527410.98, eth: 0.00972, drips: 19 },
+      { date: today, fuel: 10180790.08, eth: 0.00619, drips: 10 },
+    ],
+  })
+  render(<BurnChart />)
+  await waitFor(() =>
+    expect(screen.getByText(/Today's bar is a partial day/)).toBeTruthy(),
+  )
+})
+
+it('does not claim a partial day when the newest bar is a complete past day', async () => {
+  mockFetch(payload)
+  render(<BurnChart />)
+  await waitFor(() => expect(screen.getByText('FUEL buy & burn')).toBeTruthy())
+  expect(screen.queryByText(/Today's bar is a partial day/)).toBeNull()
+})
