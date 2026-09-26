@@ -126,7 +126,7 @@ export function MarketChart({ history, quotes }: {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="chart-note">Market observations · the radar's collector records a point every 15 minutes (Dexscreener → GeckoTerminal → DexPaprika failover, stale quotes rejected); this browser adds fresher points between syncs. Drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}{latestAttribution}{coverageNote}</p>
+      <p className="chart-note">Market observations · the radar's collector records a point about every 5 minutes (Dexscreener → GeckoTerminal → DexPaprika failover, stale quotes rejected); this browser adds fresher points between syncs. Drag the range handles to zoom. {normalized && base ? `0% starts at ${utcTick(base.at)} UTC. ` : ''}{latestAttribution}{coverageNote}</p>
     </>}
   </section>
 }

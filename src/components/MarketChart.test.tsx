@@ -74,6 +74,15 @@ it('attributes the strip to the worker quotes when they drive it, not the merged
   expect(note.textContent).toContain('MORE no worker quote yet')
   expect(note.textContent).not.toContain('recorded in this browser')
 })
+it('states the production snapshot cadence so the caption matches the Guide',()=>{
+ setup()
+ fireEvent.click(screen.getByRole('button',{name:'Compare USD'}))
+ // Production cron is */5 and the Guide says "every 5 minutes"; the chart
+ // caption must not contradict it with the old dev-era 15-minute figure.
+ const note = screen.getByText(/the radar's collector records a point/)
+ expect(note.textContent).toContain('about every 5 minutes')
+ expect(note.textContent).not.toContain('15 minutes')
+})
 it('names collector coverage when a fixed range outruns the available history',()=>{
   vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
   const day = 86_400_000
