@@ -87,6 +87,22 @@ it('shows an honest error when the request fails', async () => {
   await waitFor(() => expect(screen.getByText(/could not be loaded/)).toBeTruthy())
 })
 
+it('marks the heading incomplete when the feed covers the current ET day', async () => {
+  const todayEt = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  mockFetch({ ...payload, date: todayEt })
+  render(<DailyFlowCards onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText('Top buyers')).toBeTruthy())
+  expect(screen.getByText('incomplete')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: /Today's flow/ }).textContent).toContain('incomplete')
+})
+
+it('does not mark incomplete when the feed is stale or for a past day', async () => {
+  mockFetch(stalePayload)
+  render(<DailyFlowCards onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused/)).toBeTruthy())
+  expect(screen.queryByText('incomplete')).toBeNull()
+})
+
 it('sends the wallet to the Cockpit lookup when clicked', async () => {
   mockFetch(payload)
   const lookup = vi.fn()

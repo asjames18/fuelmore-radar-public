@@ -92,6 +92,13 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
   // A "collecting" payload with a stale through_time is not collecting at all —
   // keep the delayed/stale state distinct from the genuine initial-load state.
   const stalled = collecting && syncPaused
+  // The flow day follows the America/New_York calendar (see the API note).
+  // When the feed covers today's ET day and is not stale, the tallies are for
+  // a still-running day — mark the heading incomplete instead of presenting
+  // them as a finished day's totals. Mirrors the burn chart's partial-day
+  // treatment. When syncing is paused, the paused label already covers it.
+  const todayEt = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const dayInProgress = flows != null && flows.date === todayEt && !syncPaused
   const freshness =
     flows?.through_block != null
       ? `Data through block ${Number(flows.through_block).toLocaleString('en-US')}${
@@ -103,7 +110,10 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
     <section className="panel" aria-labelledby="daily-flow-title">
       <div className="panel-heading compact">
         <div>
-          <h2 id="daily-flow-title">Today&apos;s flow</h2>
+          <h2 id="daily-flow-title">
+            Today&apos;s flow
+            {dayInProgress && <> · <span className="pulse-flag">incomplete</span></>}
+          </h2>
           <p>
             Top FUEL buyers and sellers{flows ? ` · ${flows.date} ET` : ''}
             {freshness ? ` · ${freshness}` : ''}
