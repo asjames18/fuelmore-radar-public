@@ -82,6 +82,23 @@ it('shows today numbers, 7-day totals, and next-7-day maturities without charts'
   expect(screen.queryByRole('img')).toBeNull()
 })
 
+it('qualifies the 7-day window when it ends on today\'s partial day', async () => {
+  const todayUtc = new Date().toISOString().slice(0, 10)
+  const partialDays = days.map((d, i) => (i === days.length - 1 ? { ...d, date: todayUtc } : d))
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...envelope, report: { ...envelope.report, days: partialDays } })))
+  render(<OverviewStats protocol={protocol} {...handlers}/>)
+  await screen.findByText((_, el) => el?.textContent === `Today · ${todayUtc} · incomplete`)
+  // The sums mix six complete days with today's partial one — the heading says so.
+  expect(screen.getByText(/incl\. today \(partial\)/)).toBeTruthy()
+})
+
+it('does not qualify the 7-day window when it ends on a complete past day', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(envelope)))
+  render(<OverviewStats protocol={protocol} {...handlers}/>)
+  await screen.findByText('Last 7 days')
+  expect(screen.queryByText(/incl\. today \(partial\)/)).toBeNull()
+})
+
 it('shows condensed protocol numbers and links onward', async () => {
   const onSeeProtocol = vi.fn()
   const onSeeMarkets = vi.fn()

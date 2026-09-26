@@ -94,6 +94,12 @@ export function OverviewStats({ protocol, protocolObservation, onSeeProtocol, on
   const unavailable = failed || (!!envelope && !report)
   const days = report?.days ?? []
   const today = days.at(-1)
+  // The window ends on an incomplete day when the feed is caught up through
+  // today — the 7-day sums then mix six complete days with a partial one, so
+  // the heading must say so instead of presenting the sums as seven full days.
+  // Mirrors the burn chart's partial-day treatment.
+  const todayUtc = new Date().toISOString().slice(0, 10)
+  const windowEndsPartial = today != null && today.date === todayUtc
   const mints7 = days.reduce((sum, day) => sum + day.mints, 0)
   const claims7 = days.reduce((sum, day) => sum + day.claims, 0)
   const delayed = envelope?.status === 'stale'
@@ -121,7 +127,10 @@ export function OverviewStats({ protocol, protocolObservation, onSeeProtocol, on
         <Stat label="Reward claims" value={num(today.claims)}/>
         <Stat label="FUEL claimed" value={formatClaimedFuel(today.claimedFuel)}/>
       </div>
-      <h3 className="pulse-group">Last 7 days</h3>
+      <h3 className="pulse-group">
+        Last 7 days
+        {windowEndsPartial && <> · <span className="pulse-flag">incl. today (partial)</span></>}
+      </h3>
       <div className="pulse-grid">
         <Stat label="Mint starts" value={mints7.toLocaleString('en-US')}/>
         <Stat label="Reward claims" value={claims7.toLocaleString('en-US')}/>
