@@ -4,8 +4,10 @@ vi.mock('viem', async original => ({ ...await original<typeof import('viem')>(),
 import { fetchRadarData } from './api'
 import { CONTRACTS, PAIRS } from './contracts'
 let brokenHolders = false
+let transferItems: unknown[] = []
 beforeEach(() => {
   brokenHolders = false
+  transferItems = []
   rpc.readContract.mockResolvedValue(1n)
   rpc.getBalance.mockResolvedValue(1n)
   rpc.getChainId.mockResolvedValue(4663)
@@ -14,7 +16,8 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (brokenHolders && url.includes('/holders')) return new Response('{}', { status: 400 })
     let payload: unknown = { items: [] }
-    if (url.includes('/latest/dex/')) {
+    if (url.endsWith('/transfers')) payload = { items: transferItems }
+    else if (url.includes('/latest/dex/')) {
       const fuel = url.toLowerCase().endsWith(PAIRS.fuel.toLowerCase())
       payload = { pairs: [{ chainId: 'robinhood', pairAddress: fuel ? PAIRS.fuel : PAIRS.more, baseToken: { address: CONTRACTS[fuel ? 0 : 1].address, symbol: fuel ? 'FUEL' : 'MORE', name: 'Token' }, dexId: 'uniswap', priceUsd: '1' }] }
     } else if (url.includes('/smart-contracts/')) payload = { is_verified: true }
@@ -80,4 +83,25 @@ it('uses the documented chain-specific explorer API on the backend without expos
  expect(data.holders.FUEL.totalHolders).toBe(0)
  expect(data.sources.find(s=>s.name==='FUEL holders')?.status).toBe('available')
  expect(JSON.stringify(data,(_,v)=>typeof v==='bigint'?v.toString():v)).not.toContain('test-only-key')
+})
+it('labels dead-address transfers Removed rather than Burn', async () => {
+  const dead = '0x000000000000000000000000000000000000dEaD'
+  const zero = '0x0000000000000000000000000000000000000000'
+  const wallet = '0x1111111111111111111111111111111111111111'
+  const item = (hash: string, from: string, to: string) => ({
+    transaction_hash: hash,
+    timestamp: '2026-09-24T11:52:00.000Z',
+    token: { symbol: 'FUEL' },
+    total: { value: '1000000000000000000', decimals: '18' },
+    from: { hash: from },
+    to: { hash: to },
+  })
+  transferItems = [item('0xdeadx', wallet, dead), item('0xburnx', wallet, zero)]
+  const data = await fetchRadarData()
+  const byHash = Object.fromEntries(data.activity.map((a: { hash: string; event: string }) => [a.hash, a.event]))
+  // Dead-address sends are supply-neutral: 'Removed' matches the burns
+  // methodology and the MORE removed language; only true supply burns to the
+  // zero address read as 'Burn'.
+  expect(byHash['0xdeadx']).toBe('Removed')
+  expect(byHash['0xburnx']).toBe('Burn')
 })

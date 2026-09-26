@@ -220,6 +220,33 @@ it('buildDashboard assembles all sections from live sources', async () => {
   assert.equal(data.partial, false)
 })
 
+it('buildDashboard labels dead-address transfers Removed, not Burn', async () => {
+  stubFetchAll()
+  const base = globalThis.fetch
+  const dead = '0x000000000000000000000000000000000000dEaD'
+  const zero = '0x0000000000000000000000000000000000000000'
+  const wallet = '0x1111111111111111111111111111111111111111'
+  globalThis.fetch = async (url, init) => {
+    const u = String(url)
+    if (u.includes('/tokens/') && u.includes('/transfers') && u.includes(FUEL)) {
+      return Response.json({
+        items: [
+          { ...transferItem('FUEL', '0xdeadhash', '2026-09-24T11:52:00.000Z'), from: { hash: wallet }, to: { hash: dead } },
+          { ...transferItem('FUEL', '0xburnhash', '2026-09-24T11:52:01.000Z'), from: { hash: wallet }, to: { hash: zero } },
+        ],
+      })
+    }
+    return base(url, init)
+  }
+  const data = await buildDashboard({ RPC_URL: 'https://rpc.example' })
+  const byHash = Object.fromEntries(data.activity.map((item) => [item.hash, item.event]))
+  // Dead-address sends are supply-neutral: 'Removed' matches the burns
+  // methodology and the MORE removed language; only true supply burns to the
+  // zero address read as 'Burn'.
+  assert.equal(byHash['0xdeadhash'], 'Removed')
+  assert.equal(byHash['0xburnhash'], 'Burn')
+})
+
 it('buildDashboard retries Dexscreener 429s honoring Retry-After instead of marking the source unavailable', async () => {
   stubFetchAll()
   const base = globalThis.fetch

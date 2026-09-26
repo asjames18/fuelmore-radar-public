@@ -169,13 +169,19 @@ async function fetchTransfers(address: string, endpoint: ExplorerUrl): Promise<A
   return data.items.slice(0, 8).map((item) => {
     const from = item.from.hash
     const to = item.to.hash
+    // Only zero-address transfers count as 'Burn' (the BuyAndBurn token.burn()
+    // flow emits Transfer to 0x0 — a true supply burn). Dead-address transfers
+    // are supply-neutral ('Removed', matching the MORE removed / supply-neutral
+    // language on the burns methodology) and must never read as supply burns.
     const event = zero.test(from)
       ? 'Mint'
-      : dead.test(to) || zero.test(to)
+      : zero.test(to)
         ? 'Burn'
-        : poolAddresses.includes(from.toLowerCase()) || poolAddresses.includes(to.toLowerCase())
-          ? 'Pool transfer'
-          : 'Transfer'
+        : dead.test(to)
+          ? 'Removed'
+          : poolAddresses.includes(from.toLowerCase()) || poolAddresses.includes(to.toLowerCase())
+            ? 'Pool transfer'
+            : 'Transfer'
     return {
       hash: item.transaction_hash,
       timestamp: item.timestamp,
