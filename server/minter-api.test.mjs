@@ -225,3 +225,38 @@ it('returns 503 when KV is unavailable', async () => {
   const res = await handleBurnsRequest(req('/api/burns'), null)
   assert.equal(res.status, 503)
 })
+
+it('exposes the collector sync state on minter, flows, and burn payloads', async () => {
+  const kv = kvWithRows()
+  const minters = await (await handleMintersRequest(req('/api/minters'), kv)).json()
+  assert.deepEqual(minters.sync, { state: 'ok', last_attempt_time: null })
+  const flows = await (await handleFlowsDailyRequest(req('/api/flows/daily?date=2026-09-21'), kv)).json()
+  assert.deepEqual(flows.sync, { state: 'ok', last_attempt_time: null })
+  const burns = await (await handleBurnsRequest(req('/api/burns'), kvWithBurns())).json()
+  assert.deepEqual(burns.sync, { state: 'ok', last_attempt_time: null })
+})
+
+it('reports sync.state error with the last attempt time when the collector is failing', async () => {
+  const kv = fakeKv({
+    'meta:minter-collector': JSON.stringify({
+      last_block: '69286787',
+      last_run_ts: 1790294990,
+      status: 'error',
+      reason: 'scan-failed',
+      last_attempt_ts: 1790495136,
+      backfill_done: true,
+    }),
+  })
+  const body = await (await handleMintersRequest(req('/api/minters'), kv)).json()
+  assert.equal(body.status, 'collecting')
+  assert.deepEqual(body.sync, {
+    state: 'error',
+    last_attempt_time: new Date(1790495136 * 1000).toISOString(),
+  })
+  assert.ok(!('reason' in body.sync), 'failure reason stays private')
+})
+
+it('reports sync.state unknown when the collector meta is missing', async () => {
+  const body = await (await handleMintersRequest(req('/api/minters'), fakeKv({}))).json()
+  assert.deepEqual(body.sync, { state: 'unknown', last_attempt_time: null })
+})

@@ -111,3 +111,12 @@ it('sends the wallet to the Cockpit lookup when clicked', async () => {
   fireEvent.click(screen.getAllByTitle('Look up in Cockpit')[0])
   expect(lookup).toHaveBeenCalledWith('0xaa6bef47484a72aafd0a37361cbedb1fbace6dc6')
 })
+
+it('flags syncing paused from the collector error state even when the last write looks fresh', async () => {
+  mockFetch({
+    ...payload,
+    sync: { state: 'error', last_attempt_time: new Date().toISOString() },
+  })
+  render(<DailyFlowCards onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
+})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatChange, formatClaimedFuel, formatEth, formatToken, formatUsd, shortAddress } from './format'
+import { formatChange, formatClaimedFuel, formatEth, formatToken, formatUsd, isSyncPaused, shortAddress } from './format'
 
 describe('dashboard formatters', () => {
   it('keeps small token prices readable', () => {
@@ -21,5 +21,28 @@ describe('dashboard formatters', () => {
   it('keeps invalid claimed-fuel strings unknown instead of crashing', () => {
     expect(formatClaimedFuel('12.5')).toBe('12.5')
     expect(formatClaimedFuel('not-a-number')).toBe('—')
+  })
+})
+
+describe('isSyncPaused', () => {
+  const fresh = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+  const stale = new Date(Date.now() - 25 * 3600 * 1000).toISOString()
+  const attempt = new Date().toISOString()
+
+  it('treats a collector error as paused even when the last write looks fresh', () => {
+    expect(isSyncPaused({ state: 'error', last_attempt_time: attempt }, fresh)).toBe(true)
+  })
+
+  it('does not mislabel a healthy-but-slow collector as paused', () => {
+    expect(isSyncPaused({ state: 'ok', last_attempt_time: attempt }, stale)).toBe(true) // stale age still wins
+    expect(isSyncPaused({ state: 'ok', last_attempt_time: attempt }, fresh)).toBe(false)
+  })
+
+  it('falls back to the age heuristic when the sync state is unknown or absent', () => {
+    expect(isSyncPaused({ state: 'unknown', last_attempt_time: null }, stale)).toBe(true)
+    expect(isSyncPaused({ state: 'unknown', last_attempt_time: null }, fresh)).toBe(false)
+    expect(isSyncPaused(undefined, stale)).toBe(true)
+    expect(isSyncPaused(undefined, fresh)).toBe(false)
+    expect(isSyncPaused(undefined, null)).toBe(false)
   })
 })

@@ -105,6 +105,23 @@ function freshness(meta) {
   return {
     through_block: meta?.last_block ?? null,
     through_time: typeof meta?.last_run_ts === 'number' ? isoOrNull(meta.last_run_ts) : null,
+    ...syncState(meta),
+  }
+}
+
+/**
+ * Authoritative collector sync state, so API consumers can distinguish a
+ * stalled/erroring feed from one that is merely between ticks. The failure
+ * `reason` stays out of the public payload (diagnostics are private);
+ * consumers get the state and the last attempt time.
+ */
+function syncState(meta) {
+  return {
+    sync: {
+      state: meta?.status === 'ok' ? 'ok' : meta?.status === 'error' ? 'error' : 'unknown',
+      last_attempt_time:
+        typeof meta?.last_attempt_ts === 'number' ? isoOrNull(meta.last_attempt_ts) : null,
+    },
   }
 }
 
@@ -141,6 +158,7 @@ export async function handleBurnsRequest(request, kv) {
       through_block: meta?.last_block != null ? String(meta.last_block) : null,
       through_time:
         typeof meta?.last_run_ts === 'number' ? isoOrNull(meta.last_run_ts) : null,
+      ...syncState(meta),
     }
     if (!stored || !Array.isArray(stored.days) || stored.days.length === 0) {
       return jsonResponse({

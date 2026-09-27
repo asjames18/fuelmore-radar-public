@@ -117,3 +117,12 @@ it('sends the wallet to the Cockpit lookup when clicked', async () => {
   fireEvent.click(screen.getAllByTitle('Look up in Cockpit')[0])
   expect(lookup).toHaveBeenCalledWith('0xc9df60b8167a6f3fa7efd1aad27a58ecaf0bbf21')
 })
+
+it('shows the syncing-paused note from the collector error state even when the last write looks fresh', async () => {
+  mockFetch({
+    ...payload,
+    sync: { state: 'error', last_attempt_time: new Date().toISOString() },
+  })
+  render(<MintersView onLookupWallet={() => {}} />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
+})

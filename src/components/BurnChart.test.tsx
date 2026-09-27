@@ -90,3 +90,13 @@ it('does not claim a partial day when the newest bar is a complete past day', as
   await waitFor(() => expect(screen.getByText('FUEL buy & burn')).toBeTruthy())
   expect(screen.queryByText(/Today's bar is a partial day/)).toBeNull()
 })
+
+it('shows the syncing-paused note from the collector error state even when the last write looks fresh', async () => {
+  mockFetch({
+    ...payload,
+    through_time: new Date().toISOString(),
+    sync: { state: 'error', last_attempt_time: new Date().toISOString() },
+  })
+  render(<BurnChart />)
+  await waitFor(() => expect(screen.getByText(/Syncing paused — showing last available data/)).toBeTruthy())
+})

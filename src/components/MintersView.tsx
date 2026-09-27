@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { fetchMinters, type MinterRow } from '../lib/minter'
-import { shortAddress, timeAgo, isFreshnessStale } from '../lib/format'
+import { shortAddress, timeAgo, isSyncPaused } from '../lib/format'
 
 type SortKey = 'claimed' | 'sold' | 'bought' | 'pct_sold' | 'remint_count' | 'last_active_ts'
 type Dir = 'asc' | 'desc'
@@ -57,10 +57,10 @@ export function MintersView({ onLookupWallet }: { onLookupWallet: (address: stri
         setRows(data.rows)
         setMethodology(data.methodology)
         setFreshness(fmtThrough(data.through_block, data.through_time))
-        // The minter feed is worker-owned like market data: flag it paused when
-        // the newest collected point is older than the stale threshold, instead
-        // of letting a bare old timestamp imply the table is current.
-        setSyncPaused(isFreshnessStale(data.through_time ? Date.parse(data.through_time) : null))
+        // The minter feed is worker-owned like market data: flag it paused from
+        // the collector's own sync state first, falling back to the freshness
+        // age heuristic when the state is unknown.
+        setSyncPaused(isSyncPaused(data.sync, data.through_time))
       } catch {
         if (live) setFailed(true)
       }

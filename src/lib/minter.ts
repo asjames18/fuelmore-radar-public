@@ -1,6 +1,8 @@
 // Client for the minter-analytics API (FUEL only).
 // Served by the worker; on preview it reads the preview KV namespace.
 
+import type { CollectorSync } from './format'
+
 export type MinterRow = {
   wallet: string
   claimed: number | null
@@ -22,6 +24,7 @@ export type MintersResponse = {
   methodology: string
   through_block: string | null
   through_time: string | null
+  sync?: CollectorSync
 }
 
 export type FlowEntry = {
@@ -43,6 +46,7 @@ export type DailyFlowsResponse = {
   note: string
   through_block: string | null
   through_time: string | null
+  sync?: CollectorSync
 }
 
 async function getJson(path: string): Promise<unknown> {

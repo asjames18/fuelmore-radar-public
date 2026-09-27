@@ -81,3 +81,23 @@ export const isFreshnessStale = (atMs: number | null | undefined) => {
   if (typeof atMs !== 'number' || !Number.isFinite(atMs)) return false
   return Date.now() - atMs > SYNC_STALE_AFTER_MS
 }
+
+/** Authoritative collector sync state, served by the worker API alongside through_time. */
+export type CollectorSync = {
+  state: 'ok' | 'error' | 'unknown'
+  last_attempt_time: string | null
+}
+
+/**
+ * True when a worker-owned feed should be labeled "syncing paused". The
+ * collector's own error state wins over the age heuristic: an erroring
+ * collector is paused even when its last successful write is recent, and a
+ * healthy-but-slow collector (e.g. mid catch-up backfill) must not be
+ * mislabeled paused. Absent/unknown sync state falls back to the heuristic.
+ */
+export const isSyncPaused = (
+  sync: CollectorSync | null | undefined,
+  throughTime: string | null | undefined,
+) =>
+  sync?.state === 'error' ||
+  isFreshnessStale(throughTime ? Date.parse(throughTime) : null)

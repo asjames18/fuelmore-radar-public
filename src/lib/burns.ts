@@ -1,5 +1,7 @@
 // Client for the FUEL buy-and-burn API. Served by the worker.
 
+import type { CollectorSync } from './format'
+
 export type BurnDay = {
   date: string
   fuel: number | null
@@ -20,6 +22,7 @@ export type BurnsResponse = {
   methodology: string
   through_block: string | null
   through_time: string | null
+  sync?: CollectorSync
 }
 
 export async function fetchBurns(): Promise<BurnsResponse> {

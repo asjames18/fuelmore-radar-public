@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchDailyFlows, type DailyFlowsResponse, type FlowEntry } from '../lib/minter'
-import { formatUsd, shortAddress, timeAgo, isFreshnessStale } from '../lib/format'
+import { formatUsd, shortAddress, timeAgo, isSyncPaused } from '../lib/format'
 
 const fmtFuel = (value: number | null) => {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -86,9 +86,10 @@ export function DailyFlowCards({ onLookupWallet }: { onLookupWallet: (address: s
 
   const collecting = !failed && (!flows || flows.status === 'collecting')
   // Same paused-sync treatment as the topbar market freshness: the flow feed is
-  // worker-owned, so a through_time older than the stale threshold means the
-  // collector is stuck, not merely between ticks.
-  const syncPaused = isFreshnessStale(flows?.through_time ? Date.parse(flows.through_time) : null)
+  // worker-owned, so the collector's own error state flags it paused even
+  // before the age heuristic would, and a healthy-but-slow collector is never
+  // mislabeled paused.
+  const syncPaused = isSyncPaused(flows?.sync, flows?.through_time)
   // A "collecting" payload with a stale through_time is not collecting at all —
   // keep the delayed/stale state distinct from the genuine initial-load state.
   const stalled = collecting && syncPaused
