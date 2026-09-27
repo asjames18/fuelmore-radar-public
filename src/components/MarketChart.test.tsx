@@ -83,6 +83,18 @@ it('states the production snapshot cadence so the caption matches the Guide',()=
  expect(note.textContent).toContain('about every 5 minutes')
  expect(note.textContent).not.toContain('15 minutes')
 })
+it('tells visitors the Dexscreener embeds are temporary and how far the own history has come',()=>{
+  vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
+  const day = 86_400_000
+  // Server-collected (attributed) points spanning 2.5 days — well short of
+  // the 7-day retirement threshold, so the embeds still render.
+  const attributed=[0,day,2.5*day].map((at,i)=>({at,fuelPrice:0.01+i*0.002,morePrice:0.00003,fuelLiquidity:1000,moreLiquidity:100,fuelSource:'dexscreener',moreSource:'dexscreener'}))
+  render(<MarketChart history={attributed}/>)
+  const note = screen.getByText(/These embeds are temporary/)
+  expect(note.textContent).toContain('the radar retires them once its own collected history covers 7 days')
+  expect(note.textContent).toContain('own history so far: 2.5 days')
+  expect(note.textContent).toContain('third-party snapshots')
+})
 it('names collector coverage when a fixed range outruns the available history',()=>{
   vi.stubGlobal('ResizeObserver',class { observe(){} unobserve(){} disconnect(){} })
   const day = 86_400_000

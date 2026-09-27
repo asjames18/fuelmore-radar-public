@@ -58,6 +58,10 @@ export function MarketChart({ history, quotes }: {
     if (p.at > fullLastAt) fullLastAt = p.at
   }
   const ownHistoryMature = firstAt !== Infinity && (fullLastAt - firstAt) / 86_400_000 >= OWN_HISTORY_MATURITY_DAYS
+  // Honest maturity readout for the embed caption: visitors can see the
+  // radar's own history accumulating toward the 7-day retirement threshold,
+  // so the Dexscreener embeds' disappearance later is never a surprise.
+  const ownSpanDaysText = firstAt !== Infinity ? `${((fullLastAt - firstAt) / 86_400_000).toFixed(1)} days` : 'no collected history yet'
   const viewOptions: View[] = ownHistoryMature ? ['usd', 'percent'] : ['candles', 'usd', 'percent']
   // 'candles' is not an available view once the own history is mature — fold
   // any lingering selection to 'usd' so the retired embeds never render.
@@ -123,7 +127,7 @@ export function MarketChart({ history, quotes }: {
           <iframe title={`${token} USD candlestick chart`} src={candleUrl(token)} referrerPolicy="strict-origin-when-cross-origin"/>
         </div>)}
       </div>
-      <p className="chart-note">Market candles by Dexscreener · each token has its own USD scale. Use Compare USD to overlay both tokens. If a chart cannot load, use Open chart.</p>
+      <p className="chart-note">Market candles by Dexscreener (third-party snapshots, not executable quotes) · each token has its own USD scale. Use Compare USD to overlay both tokens. If a chart cannot load, use Open chart. These embeds are temporary — the radar retires them once its own collected history covers 7 days (own history so far: {ownSpanDaysText}).</p>
     </> : <>
       <div className="chart-quotes" aria-label="Latest chart observations">{series.map(token=>{
         // Same feed as the token cards: when a worker-owned quote exists for
