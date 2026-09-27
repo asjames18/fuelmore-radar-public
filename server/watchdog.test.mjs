@@ -41,7 +41,7 @@ it('does nothing when both snapshots are fresh', async () => {
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25), [WATCHDOG.marketKey]: market(10) })
   let fetched = false
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 10 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: 20, activity: 25, market: 10 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 
@@ -56,6 +56,7 @@ it('dispatches a main-ref run when snapshots exceed the staleness threshold', as
   assert.equal(result.checked, true)
   assert.equal(result.stale, true)
   assert.equal(result.dispatched, true)
+  assert.equal(result.dispatchStatus, 204)
   assert.equal(result.reason, 'dispatched')
   assert.equal(seen.url, 'https://api.github.com/repos/asjames18/fuelmore-radar/actions/workflows/refresh-activity.yml/dispatches')
   assert.equal(seen.init.method, 'POST')
@@ -103,20 +104,34 @@ it('does not record a dispatch or claim success on non-204 responses', async () 
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(300) })
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => new Response('nope', { status: 401 }) })
   assert.equal(result.dispatched, false)
+  assert.equal(result.dispatchStatus, 401)
   assert.equal(result.reason, 'dispatch-failed')
   assert.equal(kv.store.has(WATCHDOG.lastDispatchKey), false)
+})
+
+it('records the dispatch HTTP status so failures are diagnosable', async () => {
+  const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(300) })
+  const forbidden = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => new Response('forbidden', { status: 403 }) })
+  assert.equal(forbidden.dispatched, false)
+  assert.equal(forbidden.dispatchStatus, 403)
+  assert.equal(forbidden.reason, 'dispatch-failed')
+  const notFound = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => new Response('not found', { status: 404 }) })
+  assert.equal(notFound.dispatched, false)
+  assert.equal(notFound.dispatchStatus, 404)
+  assert.equal(notFound.reason, 'dispatch-failed')
 })
 
 it('never throws when the GitHub API call fails', async () => {
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(300) })
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { throw new Error('network down') } })
   assert.equal(result.dispatched, false)
+  assert.equal(result.dispatchStatus, null)
   assert.equal(result.reason, 'dispatch-failed')
 })
 
 it('reports unavailable when no storage binding exists', async () => {
   const result = await checkPipelineFreshness({}, base())
-  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' })
+  assert.deepEqual(result, { checked: false, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' })
 })
 
 it('prefers D1 snapshots over stale KV mirrors', async () => {
@@ -128,7 +143,7 @@ it('prefers D1 snapshots over stale KV mirrors', async () => {
   let fetched = false
   const env = { ...makeEnv(kv), DB: db }
   const result = await checkPipelineFreshness(env, { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 12 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: 20, activity: 25, market: 12 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 
@@ -139,7 +154,7 @@ it('logs a stale worker market snapshot without dispatching for it', async () =>
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(20), [WATCHDOG.activityKey]: activity(25), [WATCHDOG.marketKey]: market(300) })
   let fetched = false
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 20, activity: 25, market: 300 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: 20, activity: 25, market: 300 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 
@@ -172,7 +187,7 @@ it('does not dispatch when only the dashboard is stale (worker-owned)', async ()
   const kv = makeKv({ [WATCHDOG.dashboardKey]: dashboard(300), [WATCHDOG.activityKey]: activity(10), [WATCHDOG.marketKey]: market(10) })
   let fetched = false
   const result = await checkPipelineFreshness(makeEnv(kv), { ...base(), fetchImpl: async () => { fetched = true; return new Response(null, { status: 204 }) } })
-  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, ages: { dashboard: 300, activity: 10, market: 10 }, reason: 'fresh' })
+  assert.deepEqual(result, { checked: true, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: 300, activity: 10, market: 10 }, reason: 'fresh' })
   assert.equal(fetched, false)
 })
 

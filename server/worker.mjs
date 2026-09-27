@@ -387,6 +387,7 @@ export default {
             prev.checked !== result.checked ||
             prev.stale !== result.stale ||
             prev.dispatched !== result.dispatched ||
+            prev.dispatchStatus !== result.dispatchStatus ||
             prev.reason !== result.reason
         } catch {
           changed = true

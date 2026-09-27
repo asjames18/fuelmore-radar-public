@@ -19,6 +19,10 @@
 // The dispatch token lives in the `GITHUB_DISPATCH_TOKEN` Worker secret, never
 // in config or source. A fine-grained PAT with Actions: Read and write on the
 // repo is enough. Without the secret the watchdog logs and does nothing.
+// A failed dispatch records the GitHub HTTP status in `dispatchStatus` (401 =
+// bad/expired token, 403 = missing Actions permission, 404 = wrong repo/scope,
+// null = network failure) so the failure is diagnosable from
+// `watchdog-last-check` without guessing.
 
 import { storeGet } from './d1-store.mjs'
 
@@ -82,17 +86,22 @@ async function readAgeMinutes(env, key, extract, nowMs) {
 
 async function dispatchWorkflowRun({ token, fetchImpl, config }) {
   const url = `https://api.github.com/repos/${config.owner}/${config.repo}/actions/workflows/${config.workflowFile}/dispatches`
-  const response = await fetchImpl(url, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ ref: config.ref }),
-  })
-  return response.status === 204
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ref: config.ref }),
+    })
+    return { ok: response.status === 204, status: response.status }
+  } catch {
+    // Network-level failure: no HTTP status exists to report.
+    return { ok: false, status: null }
+  }
 }
 
 /**
@@ -109,7 +118,7 @@ export async function checkPipelineFreshness(env, options = {}) {
   const hasDb = env?.DB != null && typeof env.DB.prepare === 'function'
   const hasKv = env?.ACTIVITY != null && typeof env.ACTIVITY.get === 'function'
   if (!hasDb && !hasKv) {
-    return { checked: false, stale: false, dispatched: false, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' }
+    return { checked: false, stale: false, dispatched: false, dispatchStatus: null, ages: { dashboard: null, activity: null, market: null }, reason: 'storage-unavailable' }
   }
 
   const dashboardAge = await readAgeMinutes(env, config.dashboardKey, dashboardTimestamp, nowMs)
@@ -124,11 +133,11 @@ export async function checkPipelineFreshness(env, options = {}) {
   // dashboardAge stays in the result for diagnostics.
   const stale = !Number.isFinite(activityAge) || activityAge > config.staleMinutes
 
-  if (!stale) return { checked: true, stale: false, dispatched: false, ages, reason: 'fresh' }
+  if (!stale) return { checked: true, stale: false, dispatched: false, dispatchStatus: null, ages, reason: 'fresh' }
 
   const token = env[config.secretName]
   if (!token || typeof token !== 'string') {
-    return { checked: true, stale: true, dispatched: false, ages, reason: 'token-missing' }
+    return { checked: true, stale: true, dispatched: false, dispatchStatus: null, ages, reason: 'token-missing' }
   }
 
   try {
@@ -137,7 +146,7 @@ export async function checkPipelineFreshness(env, options = {}) {
       if (lastRaw !== null && lastRaw !== undefined) {
         const lastMs = Date.parse(String(lastRaw))
         if (Number.isFinite(lastMs) && minutesBetween(nowMs, lastMs) < config.cooldownMinutes) {
-          return { checked: true, stale: true, dispatched: false, ages, reason: 'cooldown' }
+          return { checked: true, stale: true, dispatched: false, dispatchStatus: null, ages, reason: 'cooldown' }
         }
       }
     }
@@ -145,13 +154,12 @@ export async function checkPipelineFreshness(env, options = {}) {
     // Best-effort cooldown only; continue to the dispatch attempt.
   }
 
-  let dispatched = false
-  try {
-    dispatched = await dispatchWorkflowRun({ token, fetchImpl, config })
-  } catch {
-    dispatched = false
-  }
-  if (!dispatched) return { checked: true, stale: true, dispatched: false, ages, reason: 'dispatch-failed' }
+  // Record the GitHub dispatch HTTP status so a failed dispatch is
+  // diagnosable (401 = bad/expired token, 403 = missing Actions permission,
+  // 404 = wrong repo/scope, null = network failure). The status flows into
+  // the persisted watchdog-last-check entry via the caller.
+  const outcome = await dispatchWorkflowRun({ token, fetchImpl, config })
+  if (!outcome.ok) return { checked: true, stale: true, dispatched: false, dispatchStatus: outcome.status, ages, reason: 'dispatch-failed' }
 
   try {
     if (typeof env.ACTIVITY?.put === 'function') {
@@ -160,5 +168,5 @@ export async function checkPipelineFreshness(env, options = {}) {
   } catch {
     // The dispatch already happened; a missed cooldown write is harmless.
   }
-  return { checked: true, stale: true, dispatched: true, ages, reason: 'dispatched' }
+  return { checked: true, stale: true, dispatched: true, dispatchStatus: outcome.status, ages, reason: 'dispatched' }
 }
