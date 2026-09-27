@@ -43,10 +43,21 @@ export function MarketChart({ history, quotes }: {
   // measured from the raw history (not the selected range), so a fixed range
   // or a collector stall can never strand the chart without a candles view.
   // The external "Open chart" links survive as links; only the embeds retire.
+  // Maturity is measured on server-collected points only: the history this
+  // component receives is the merged server + browser-local series, and a
+  // returning visitor's local fill-in points can span 7 days while the
+  // radar's own series is much younger. Counting those would retire the
+  // embeds early and print a false "7+ days" note. Server-collected points
+  // always carry attribution (normalizeRemotePoint stamps it; browser points
+  // never have it), so attribution is the discriminator.
   const OWN_HISTORY_MATURITY_DAYS = 7
   let firstAt = Infinity, fullLastAt = -Infinity
-  for (const p of history) { if (p.at < firstAt) firstAt = p.at; if (p.at > fullLastAt) fullLastAt = p.at }
-  const ownHistoryMature = history.length > 1 && (fullLastAt - firstAt) / 86_400_000 >= OWN_HISTORY_MATURITY_DAYS
+  for (const p of history) {
+    if (p.fuelSource == null && p.moreSource == null) continue
+    if (p.at < firstAt) firstAt = p.at
+    if (p.at > fullLastAt) fullLastAt = p.at
+  }
+  const ownHistoryMature = firstAt !== Infinity && (fullLastAt - firstAt) / 86_400_000 >= OWN_HISTORY_MATURITY_DAYS
   const viewOptions: View[] = ownHistoryMature ? ['usd', 'percent'] : ['candles', 'usd', 'percent']
   // 'candles' is not an available view once the own history is mature — fold
   // any lingering selection to 'usd' so the retired embeds never render.
