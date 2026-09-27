@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, ExternalLink } from 'lucide-react'
 import { DEXSCREENER } from '../lib/contracts'
-import { formatChange, formatUsd, shortAddress } from '../lib/format'
+import { formatChange, formatUsd, shortAddress, timeAgo } from '../lib/format'
 import type { SideQuote } from '../lib/history'
 import type { HolderSummary, PairSnapshot } from '../lib/types'
 
@@ -39,6 +39,7 @@ export function MarketCard({ pair, holders, quote }: Props) {
         <div className="price-block">
           <strong>{formatUsd(shown.priceUsd)}</strong>
           <span className={positive == null ? '' : positive ? 'positive' : 'negative'}>{positive != null && <Mark size={15} />}{formatChange(shown.change24h)}</span>
+          {quote?.observedAt != null && <span className="quote-age">as of {timeAgo(new Date(quote.observedAt).toISOString())}</span>}
         </div>
         <a className="icon-link" href={`${DEXSCREENER}/${pair.pairAddress}`} target="_blank" rel="noreferrer" aria-label={`Open ${pair.symbol} pool on Dexscreener`}>
           <ExternalLink size={16} />

@@ -60,3 +60,15 @@ it('shows honest unknowns for unsupported worker values instead of borrowing das
   expect(screen.queryByText('+1.50%')).toBeNull()
   expect(screen.queryByText('$100K')).toBeNull()
 })
+
+it('labels the price with its observation age when the worker quote has one', () => {
+  const quote: SideQuote = { priceUsd: 0.00000403, liquidityUsd: null, change24h: null, observedAt: Date.now() - 4 * 60 * 1000, source: 'dexscreener' }
+  render(<MarketCard pair={pair} quote={quote}/>)
+  expect(screen.getByText('as of 4m ago')).toBeDefined()
+})
+
+it('shows no observation age when the worker quote carries none', () => {
+  const quote: SideQuote = { priceUsd: 0.00000403, liquidityUsd: null, change24h: null, observedAt: null, source: null }
+  render(<MarketCard pair={pair} quote={quote}/>)
+  expect(screen.queryByText(/as of/)).toBeNull()
+})

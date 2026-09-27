@@ -127,6 +127,7 @@ main { padding: 20px 22px 36px; max-width: 1800px; margin: 0 auto; }
 .price-block { display: grid; justify-items: end; gap: 5px; }
 .price-block strong { font: 500 clamp(18px, 2vw, 25px) var(--mono); }
 .price-block span { display: flex; align-items: center; gap: 3px; font: 500 11px var(--mono); }
+.price-block .quote-age { font-size: 10px; font-weight: 400; color: var(--faint); }
 .positive { color: var(--green); }.negative { color: var(--red); }
 .icon-link { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
 .icon-link:hover { color: var(--green); border-color: var(--line-strong); }
