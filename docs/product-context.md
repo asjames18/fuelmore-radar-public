@@ -169,3 +169,44 @@ The observed 288-slot repeat cockpit failure and transient production HTTP 502
 reads motivated paced, abortable retries. Gateway security limits were preserved.
 Validation: 185 personal / 169 public tests, lint and builds passed; paced 288-slot
 RPC scan and 150-slot browser inventory/reward scan completed without missing rows.
+
+
+## 2026-09-27 public production week (loop-recorded)
+
+- Worker `fuelmore-radar-public` active version 144 (commit c5f232a), deployed
+  2026-09-27 18:53Z as a same-commit redeploy to unwedge frozen collectors.
+  Versions API confirms it is newest; no mystery override. Cloudflare Workers
+  Builds GitHub integration was disconnected 2026-09-23; this loop is the sole
+  deploy path.
+- Collector freeze incident 2026-09-27 ~17:35-18:53Z: market, burns, dashboard,
+  minter, and watchdog collectors all stopped writing while the */5 cron ticks
+  kept firing; each tick logged only "market snapshot: DexPaprika keyed mode"
+  then died silently (no fetch success/error lines, no D1 write, no KV mirror
+  write). Sandbox reproduction of the snapshot succeeded in <1s; KV writes fine;
+  no Cloudflare incident. Root cause undetermined from outside (likely wedged
+  worker isolate / hung outbound fetch). Redeploy of the identical commit
+  resumed collectors on the next tick. Pattern to recognize next time: ticks
+  fire + keyed-mode log only + all collectors frozen at the same timestamp.
+- Tick-poisoning fix (2026-09-24, commit 2880416): getLogsRange fails fast on
+  block-range rejections (isBlockRangeError), keeps halving only for log-count
+  limits (isLogCountError). The 02:15Z tick had exhausted the 50-subrequest
+  budget (~14 halvings, ~16k subrequests) when the minter collector's 100k-block
+  getLogs hit Alchemy's 10-block cap as HTTP 400.
+- Minter/flow collectors remain stalled: watermark 69286787 since
+  2026-09-25 00:09Z, status=error reason=scan-failed, gap ~2.5M+ blocks and
+  growing. In-worker tuning will not close it (MAX_RUN_BLOCKS=100000 x 10-block
+  ranges ~= 10k RPC calls per tick, which 429s). The dedicated sandbox catch-up
+  backfill is still unauthored and unscheduled. UI shows "Syncing paused -
+  showing last available data" (shipped 2026-09-25, commit 32af3b1); market
+  data unaffected.
+- Dexscreener candle embeds auto-retire once the radar's own server-collected
+  series spans 7 days, attribution-discriminated so browser-local fill-in points
+  can never trigger the flip early (MarketChart.test.tsx covers both directions).
+  Series spans ~6.1 days as of 2026-09-27 22:14 EDT; retirement eligible
+  ~2026-09-28 19:30 EDT. External "Open chart" links survive as links.
+- Health as of 2026-09-27 22:14 EDT: 186/186 tests green, eslint clean, public
+  build isolation check passed. Live: home 200, /api/market-history 1138 points
+  updatedAt ~4 min old on */5 ticks, /api/burns 200 through_block advancing
+  past 74432046, /api/minters 200 with 16 rows (sync error persists, UI honest),
+  /api/flows/daily honest collecting state, /api/analytics/summary 404 as
+  expected, 0 owner markers in the live public bundle.
